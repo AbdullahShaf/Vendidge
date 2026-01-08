@@ -65,6 +65,7 @@ export default function Home() {
       sessionStorage.setItem("sellerAddress", data.user.address);
       sessionStorage.setItem("sellerToken", data.user.token);
       document.cookie = `isProd=${data.user.isProd}; path=/; SameSite=Lax`;
+      
 
       console.log("Seller Token:", sessionStorage.getItem("sellerToken"));
 

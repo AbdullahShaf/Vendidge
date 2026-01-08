@@ -17,6 +17,7 @@ export default function Sidebar({ darkMode, sidebarCollapsed, setSidebarCollapse
         { icon: Wallet, label: 'Dashboard', url: '/dashboard' },
         { icon: Users, label: 'Customer', url: '/customer' },
         { icon: FileText, label: 'Invoice', url: '/invoice' },
+        { icon: FileText, label: 'Profile', url: '/profile' },
     ];
 
     const bottomItems = [
