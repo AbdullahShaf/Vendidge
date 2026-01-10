@@ -238,7 +238,7 @@ export default function InvoicePage({ darkMode }) {
 
             fetchMasterData();
         }
-         // console.log("min date from use Effect of master data");
+        // console.log("min date from use Effect of master data");
         //getMinDate();
     }, [showForm, isEditMode]);
 
@@ -1896,7 +1896,7 @@ export default function InvoicePage({ darkMode }) {
         } finally {
             setProcessingInvoiceId(null);
             fetchInvoices();
-             // console.log("min date from use post invocie to fbr");
+            // console.log("min date from use post invocie to fbr");
             getMinDate();
         }
     };
@@ -1915,7 +1915,7 @@ export default function InvoicePage({ darkMode }) {
                 return;
             }
             fetchInvoices();
-              //console.log("min date from delete invoice");
+            //console.log("min date from delete invoice");
             getMinDate();
         } catch (err) {
             console.warn('Error deleting invoice:', err);
@@ -2717,6 +2717,78 @@ ${fbrInvoiceNo ? `
             }
 
             /* ===== CALCULATE TOTAL VALUES HERE ===== */
+            // const n = (v) => (isNaN(Number(v)) ? 0 : Number(v));
+
+            // const price = n(row.singleUnitPrice);
+            // const quantity = n(row.qty);
+            // const discount = n(row.discount);
+            // const fnvrp = n(row.fixedNotifiedValueOrRetailPrice);
+
+            // const effectiveUnitPrice = Math.max(price, fnvrp);
+            // const subtotal = effectiveUnitPrice * quantity;
+            // const netValue = Math.max(0, subtotal - discount);
+            // row.valueSalesExcludingST = netValue.toFixed(2);
+
+            // let salesTaxApplicable = 0;
+
+            // const desc = (
+            //     row.rateOptions?.find(
+            //         (opt) =>
+            //             String(opt.ratE_VALUE ?? opt.ratE_ID) === String(row.rate)
+            //     )?.ratE_DESC || row.rateDesc || ""
+            // )
+            //     .toLowerCase()
+            //     .trim();
+
+            // if (!desc.includes("except") && !desc.includes("dtre")) {
+            //     const percentMatch = desc.match(/(\d+(\.\d+)?)\s*%/);
+            //     if (percentMatch) {
+            //         salesTaxApplicable +=
+            //             netValue * (parseFloat(percentMatch[1]) / 100);
+            //     }
+
+            //     const perUnitMatch = desc.match(/rs\.?\s*(\d+)\s*\/\s*(kg|mt|sqy)/);
+            //     if (perUnitMatch) {
+            //         salesTaxApplicable += quantity * n(perUnitMatch[1]);
+            //     }
+
+            //     const alongWithMatch = desc.match(
+            //         /rupees\s*(\d+)\s*per\s*kilogram/
+            //     );
+            //     if (alongWithMatch) {
+            //         salesTaxApplicable += quantity * n(alongWithMatch[1]);
+            //     }
+
+            //     const fixedRsMatch = desc.match(/^rs\.?\s*(\d+)$/);
+            //     if (fixedRsMatch) {
+            //         salesTaxApplicable += n(fixedRsMatch[1]);
+            //     }
+
+            //     const perBillMatch = desc.match(/(\d+)\s*\/\s*bill/);
+            //     if (perBillMatch) {
+            //         salesTaxApplicable += n(perBillMatch[1]);
+            //     }
+            // }
+            // row.salesTaxApplicable = salesTaxApplicable.toFixed(2);
+            // const grandTotal =
+            //     netValue +
+            //     n(row.salesTaxApplicable) +
+            //     n(row.salesTaxWithheldAtSource) +
+            //     n(row.extraTax) +
+            //     n(row.furtherTax) +
+            //     n(row.fedPayable);
+
+            // // 🔴 THIS IS THE IMPORTANT LINE
+            // row.totalValues = grandTotal.toFixed(2);
+            // newRows[index] = row;
+            // const totalExclTax = newRows.reduce((sum, r) => sum + Number(r.valueSalesExcludingST || 0), 0);
+            // const totalTax = newRows.reduce((sum, r) => sum + Number(r.salesTaxApplicable || 0), 0);
+            // const totalInclTax = totalExclTax + totalTax;
+
+            // invoiceForm.exclTax = totalExclTax.toFixed(2);
+            // invoiceForm.tax = totalTax.toFixed(2);
+            // invoiceForm.inclTax = totalInclTax.toFixed(2);
+            //console.log(`Invoice totals: ExclTax=${invoiceForm.exclTax}, Tax=${invoiceForm.tax}, InclTax=${invoiceForm.inclTax}`);
             const n = (v) => (isNaN(Number(v)) ? 0 : Number(v));
 
             const price = n(row.singleUnitPrice);
@@ -2724,37 +2796,54 @@ ${fbrInvoiceNo ? `
             const discount = n(row.discount);
             const fnvrp = n(row.fixedNotifiedValueOrRetailPrice);
 
-            const effectiveUnitPrice = Math.max(price, fnvrp);
-            const subtotal = effectiveUnitPrice * quantity;
-            const netValue = Math.max(0, subtotal - discount);
-            row.valueSalesExcludingST = netValue.toFixed(2);
+            // Determine if we are in the Retail Price/Fixed Value scenario
+            console.log(invoiceForm.scenarioCode);
+            const isRetailScenario = invoiceForm.scenarioCode === "SN008" || invoiceForm.scenarioCode === "SN027";
+            console.log(isRetailScenario);
+            /**
+             * 1. Calculate Value Sales Excluding ST
+             * Image 1 & 2: (single unit x qty) - disc
+             * Note: Even in scenario 008/027, the value of sales excluding tax 
+             * uses the actual selling price (single unit price).
+             */
+            const valueExclTax = (price * quantity) - discount;
+            row.valueSalesExcludingST = Math.max(0, valueExclTax).toFixed(2);
+
+            /**
+             * 2. Calculate Sales Tax Applicable
+             * Image 1 (All other scenarios): valueSalesExcludingST * tax rate
+             * Image 2 (008, 027): (Retail Price x Qty) * tax rate
+             */
+            let taxBaseValue;
+            if (isRetailScenario) {
+                // For 008/027, tax is calculated on Retail Price, ignoring discount
+                taxBaseValue = fnvrp * quantity;
+            } else {
+                // For all other scenarios, tax is calculated on the net discounted value
+                taxBaseValue = n(row.valueSalesExcludingST);
+            }
 
             let salesTaxApplicable = 0;
-
             const desc = (
                 row.rateOptions?.find(
-                    (opt) =>
-                        String(opt.ratE_VALUE ?? opt.ratE_ID) === String(row.rate)
+                    (opt) => String(opt.ratE_VALUE ?? opt.ratE_ID) === String(row.rate)
                 )?.ratE_DESC || row.rateDesc || ""
-            )
-                .toLowerCase()
-                .trim();
+            ).toLowerCase().trim();
 
             if (!desc.includes("except") && !desc.includes("dtre")) {
                 const percentMatch = desc.match(/(\d+(\.\d+)?)\s*%/);
                 if (percentMatch) {
-                    salesTaxApplicable +=
-                        netValue * (parseFloat(percentMatch[1]) / 100);
+                    // Apply the rate to the correctly identified taxBaseValue
+                    salesTaxApplicable += taxBaseValue * (parseFloat(percentMatch[1]) / 100);
                 }
 
+                // Fixed rate logic (per KG/Unit) remains based on quantity
                 const perUnitMatch = desc.match(/rs\.?\s*(\d+)\s*\/\s*(kg|mt|sqy)/);
                 if (perUnitMatch) {
                     salesTaxApplicable += quantity * n(perUnitMatch[1]);
                 }
 
-                const alongWithMatch = desc.match(
-                    /rupees\s*(\d+)\s*per\s*kilogram/
-                );
+                const alongWithMatch = desc.match(/rupees\s*(\d+)\s*per\s*kilogram/);
                 if (alongWithMatch) {
                     salesTaxApplicable += quantity * n(alongWithMatch[1]);
                 }
@@ -2763,33 +2852,32 @@ ${fbrInvoiceNo ? `
                 if (fixedRsMatch) {
                     salesTaxApplicable += n(fixedRsMatch[1]);
                 }
-
-                const perBillMatch = desc.match(/(\d+)\s*\/\s*bill/);
-                if (perBillMatch) {
-                    salesTaxApplicable += n(perBillMatch[1]);
-                }
             }
             row.salesTaxApplicable = salesTaxApplicable.toFixed(2);
+
+            /**
+             * 3. Total Values Calculation
+             * Image 1 & 2: valueSalesExclST + Sales Tax + Sales Tax Withheld + Extra Tax + Further Tax + FED
+             */
             const grandTotal =
-                netValue +
+                n(row.valueSalesExcludingST) +
                 n(row.salesTaxApplicable) +
                 n(row.salesTaxWithheldAtSource) +
                 n(row.extraTax) +
                 n(row.furtherTax) +
                 n(row.fedPayable);
 
-            // 🔴 THIS IS THE IMPORTANT LINE
             row.totalValues = grandTotal.toFixed(2);
+
+            // Update global forms
             newRows[index] = row;
             const totalExclTax = newRows.reduce((sum, r) => sum + Number(r.valueSalesExcludingST || 0), 0);
             const totalTax = newRows.reduce((sum, r) => sum + Number(r.salesTaxApplicable || 0), 0);
-            const totalInclTax = totalExclTax + totalTax;
+            const totalInclTax = newRows.reduce((sum, r) => sum + Number(r.totalValues || 0), 0);
 
             invoiceForm.exclTax = totalExclTax.toFixed(2);
             invoiceForm.tax = totalTax.toFixed(2);
             invoiceForm.inclTax = totalInclTax.toFixed(2);
-            //console.log(`Invoice totals: ExclTax=${invoiceForm.exclTax}, Tax=${invoiceForm.tax}, InclTax=${invoiceForm.inclTax}`);
-
 
             // Schedule dependent fetches using the updated row to avoid race conditions
             setTimeout(() => {
@@ -2843,12 +2931,15 @@ ${fbrInvoiceNo ? `
     let minDate;
     function getMinDate() {
         today = new Date().toISOString().split("T")[0];
+        // today = new Date().toLocaleDateString('en-CA', {
+        //     timeZone: 'Asia/Karachi'
+        // });
 
         // Filter invoices with success status
         const successInvoices = invoices.filter(inv => inv.status === "Success");
 
         if (successInvoices.length > 0) {
-           // console.log("success invocies ", successInvoices.length)
+            // console.log("success invocies ", successInvoices.length)
             // Get the **last invoice** by date
             const lastInvoice = successInvoices.reduce((latest, inv) => {
                 const invDate = new Date(inv.invoice_date);
@@ -2863,7 +2954,7 @@ ${fbrInvoiceNo ? `
             const day = String(d.getDate()).padStart(2, "0");
 
             minDate = `${year}-${month}-${day}`;
-          //  console.log("minDate", minDate);
+            //  console.log("minDate", minDate);
         } else {
             // const lastMonthDate = new Date();
             // lastMonthDate.setDate(lastMonthDate.getDate() - 30);

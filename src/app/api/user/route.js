@@ -9,6 +9,8 @@ export async function PUT(req) {
       business_logo,
       cnic_ntn,
       business_name,
+      email,
+      contact,
       province,
       province_id,
       address,
@@ -31,12 +33,14 @@ export async function PUT(req) {
     console.log(isProd);
     await db.query(
       `UPDATE users SET 
-        cnic_ntn = ?, business_logo= ? ,business_name = ?, province = ?,provinceId=?,  address = ?, token=? , isProd =?
+        cnic_ntn = ?, business_logo= ? ,business_name = ?, email=? , contact=? , province = ?,provinceId=?,  address = ?, token=? , isProd =?
       WHERE id = ? `,
       [    
         cnic_ntn,
         business_logo || null,
         business_name,
+        email,
+        contact,
         province,
         province_id,
         address,

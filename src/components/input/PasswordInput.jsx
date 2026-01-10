@@ -4,13 +4,14 @@ import EyeIcon from "@heroicons/react/24/outline/EyeIcon";
 import EyeSlashIcon from "@heroicons/react/24/outline/EyeSlashIcon"; 
 
 
-export default function PasswordInput({ value, onChange, placeholder }) {
+export default function PasswordInput({ name ,value, onChange, placeholder }) {
     const [showPassword, setShowPassword] = useState(false);
 
     return (
         <div className="relative w-full">
             <input
                 type={showPassword ? "text" : "password"}
+                name={name}
                 value={value}
                 onChange={onChange}
                 placeholder={placeholder}
@@ -22,7 +23,7 @@ export default function PasswordInput({ value, onChange, placeholder }) {
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-500"
             >
-                {showPassword ? (
+                {!showPassword ? (
                     <EyeSlashIcon className="w-5 h-5" />
                 ) : (
                     <EyeIcon className="w-5 h-5" />
