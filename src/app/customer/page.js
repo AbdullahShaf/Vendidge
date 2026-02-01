@@ -170,7 +170,7 @@ export default function CustomersPage({ darkMode }) {
         //     alert('CNIC is required for Individual');
         //     return;
         // }
-
+        setLoading(true);
         try {
             const url = '/api/customer';
             const method = editingCustomer ? 'PUT' : 'POST';
@@ -214,6 +214,8 @@ export default function CustomersPage({ darkMode }) {
             }
         } catch (err) {
             alert('Network error. Try again.');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -366,7 +368,7 @@ export default function CustomersPage({ darkMode }) {
                                     required
                                 />
                             </div>
-{/* 
+                            {/* 
                             <div>
                                 <label className="block text-sm font-medium mb-2">
                                     CNIC *
@@ -445,7 +447,7 @@ export default function CustomersPage({ darkMode }) {
                                     onChange={(e) => {
                                         let value = e.target.value;
 
-                                        value = value.replace(/\D/g, "");
+                                        //value = value.replace(/\D/g, "");
 
                                         if (value.length > 13) {
                                             value = value.slice(0, 13);
@@ -462,7 +464,10 @@ export default function CustomersPage({ darkMode }) {
                                     className="w-full border border-[#B0B0B0] rounded-md p-2 bg-white text-[#4E4E4E] focus:border-[#5AB3E8] focus:ring-1 focus:ring-[#5AB3E8] transition-all duration-300 outline-none"
                                     inputMode="text"
                                     required
-                                    pattern="^(\d{7}|\d{13})$"
+                                    //pattern="^(\d{7}|\d{13})$"
+                                    pattern="^([a-zA-Z0-9]{7}|\d{13})$"
+                                    onInvalid={(e) => e.target.setCustomValidity("Enter a 7-digit Alphanumeric NTN or a 13-digit Numeric CNIC")}
+                                    onInput={(e) => e.target.setCustomValidity("")}
 
                                 />
                             </div>
@@ -568,11 +573,22 @@ export default function CustomersPage({ darkMode }) {
                             </div> */}
 
                             <div className="md:col-span-2 flex flex-col md:flex-row gap-3 mt-3">
-                                <button
+                                {/* <button
                                     type="submit"
                                     className="bg-blue-600 hover:bg-blue-700 transition-all duration-300 text-white font-semibold px-8 py-3 rounded-md"
                                 >
                                     Save Customer
+                                </button> */}
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className={`bg-blue-600 hover:bg-blue-700 transition-all duration-300 text-white font-semibold px-8 py-3 rounded-md flex items-center justify-center gap-2 ${loading ? "opacity-70 cursor-not-allowed" : ""
+                                        }`}
+                                >
+                                    {loading && (
+                                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                    )}
+                                    {loading ? "Saving..." : "Save Customer"}
                                 </button>
                                 <button
                                     type="button"

@@ -2,7 +2,8 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 import {
     Wallet, Users, FileText, Settings, HelpCircle,
@@ -12,6 +13,13 @@ import {
 export default function Sidebar({ darkMode, sidebarCollapsed, setSidebarCollapsed, sidebarOpen, setSidebarOpen }) {
 
     const pathname = usePathname();
+    const router = useRouter();
+    useEffect(() => {
+        const userId = sessionStorage.getItem("userId");
+        if (!userId) {
+            router.push('/'); 
+        }
+    }, [router]);
 
     const menuItems = [
         { icon: Wallet, label: 'Dashboard', url: '/dashboard' },

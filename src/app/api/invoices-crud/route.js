@@ -6,22 +6,118 @@ import { cookies } from "next/headers";
 
 export async function POST(req) {
   try {
-    const isProd = req.cookies.get('isProd')?.value;
-
+    // const isProd = req.cookies.get('isProd')?.value;
+    const isProd = req.cookies.get('isProd')?.value === '1';
+    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
+    if (!authHeader) {
+      return NextResponse.json({ message: "Authorization header required" }, { status: 401 });
+    }
+    const token = authHeader.replace(/^Bearer\s+/i, '');
+    console.log("Token:", token);
     console.log('isProd:', isProd);
     const body = await req.json();
-    const { invoiceNo, userId, customerId, buyerProvince, sellerProvince, sellerProvinceId, scenarioCodeId, saleType, buyerType, fbrInvoiceRefNo, date, items } = body;
-
+    const { invoiceNo, sellerNTNCNIC, sellerBusinessName, sellerAddress, userId, customerId, buyerProvince, sellerProvince, sellerProvinceId, scenarioCodeId, saleType, buyerType, fbrInvoiceRefNo, date, items } = body;
+    // console.log(JSON.stringify({
+    //   invoiceNo, userId, customerId, date,
+    //   buyerProvince, sellerProvince, sellerProvinceId, scenarioCodeId,
+    //   saleType, buyerType, fbrInvoiceRefNo,
+    //   sellerNTNCNIC, sellerBusinessName, sellerAddress,
+    //   items
+    // }, null, 2));
     if (!invoiceNo || !userId || !customerId || !date || !buyerProvince || !sellerProvince || !sellerProvinceId || !scenarioCodeId || !buyerType || !saleType || !items) {
-      console.log("fields:", invoiceNo, userId, customerId, buyerProvince, sellerProvince, sellerProvinceId, scenarioCodeId, saleType, buyerType, fbrInvoiceRefNo, date, items);
+      console.log("fields:", invoiceNo, userId, customerId, buyerProvince, sellerProvince, sellerProvinceId, scenarioCodeId, saleType, buyerType, fbrInvoiceRefNo, date, items, sellerNTNCNIC, sellerBusinessName, sellerAddress);
       return NextResponse.json(
         { message: "Missing required fields" },
         { status: 400 }
       );
     }
     console.log("Creating invoice with data:", buyerType, typeof buyerType);
+    const FBR_VALIDATE_URL = isProd
+      ? process.env.VALIDATE_TO_FBR_PRODUCTION
+      : process.env.VALIDATE_TO_FBR_SANDBOX;
+    const [buyerInfoRows] = await db.query(
+      `SELECT 
+     cnic_inc AS buyerNTNCNIC, 
+     business_name AS buyerBusinessName, 
+     address AS buyerAddress, 
+     province AS buyerProvince 
+   FROM customers 
+   WHERE id = ?`,
+      [customerId]
+    );
+
+    const buyerInfo = buyerInfoRows[0];
+    console.log("Buyer Info:", buyerInfo);
+
+    const [scenarioCodeRow] = await db.query(
+      `SELECT 
+     code    
+   FROM scenario_codes 
+   WHERE id = ?`,
+      [scenarioCodeId]
+    );
+    const scenarioCode = scenarioCodeRow[0];
+    console.log("Scenario Code:", scenarioCode.code);
+
+    const fbrPayload = {
+      invoiceType: saleType,
+      invoiceDate: date,
+      sellerNTNCNIC: sellerNTNCNIC,
+      sellerBusinessName: sellerBusinessName,
+      sellerProvince: sellerProvince,
+      sellerAddress: sellerAddress,
+      buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+      buyerBusinessName: buyerInfo.buyerBusinessName,
+      buyerProvince: buyerInfo.buyerProvince,
+      buyerAddress: buyerInfo.buyerAddress,
+      buyerRegistrationType: buyerType,
+      invoiceRefNo: fbrInvoiceRefNo || "",
+
+      ...(!isProd && { scenarioId: scenarioCode.code }),
+
+      items: items.map(item => ({
+        hsCode: item.hsCode,
+        productDescription: item.description,
+        rate: item.rateDesc,
+        uoM: item.unit,
+        quantity: Number(item.qty),
+        totalValues: Number(item.totalValues || item.valueInclTax || 0),
+        valueSalesExcludingST: Number(item.valueSalesExcludingST),
+        fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+        salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+        salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+        extraTax: Number(item.extraTax || 0),
+        furtherTax: Number(item.furtherTax || 0),
+        sroScheduleNo: item.sroScheduleNo || "",
+        fedPayable: Number(item.fedPayable || 0),
+        discount: Number(item.discount || 0),
+        saleType: item.TransactionType || "",
+        sroItemSerialNo: item.sroItemSerialNo || ""
+      }))
+    };
+
+    // console.log("FBR Validation Payload:", fbrPayload);
+    // const fbrResponse = await fetch(FBR_VALIDATE_URL, {
+    //   method: "POST",
+    //   headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    //   body: JSON.stringify(fbrPayload),
+    // });
+
+    // const fbrResult = await fbrResponse.json();
+
+    // console.log("FBR Validation Response:", JSON.stringify(fbrResult, null, 2));
+    // const status = fbrResult.validationResponse.status;
+    // console.log("FBR Validation Status:", status, typeof status);
+    // if (status !== "Valid") {
+    //   return NextResponse.json({
+    //     message: "FBR validation failed",
+    //     fbrResponse: fbrResult
+    //   }, { status: 400 });
+    // }
     let result;
-    if (isProd === '1' || isProd === 'true') {
+
+    if (isProd) {
+      console.log("Inserting into invoices_prod");
       [result] = await db.query(
         `INSERT INTO invoices_prod (invoice_no, user_id, invoice_date, customer_id, buyerProvince, sellerProvince, sellerProvinceId, scenario_code,saleType, buyerType,fbrInvoiceRefNo, items)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -62,10 +158,10 @@ export async function POST(req) {
     }
 
 
-    return NextResponse.json(
-      { message: "Invoice created successfully", invoiceId: result.insertId },
-      { status: 201 }
-    );
+    return NextResponse.json({
+      message: "Invoice saved successfully",
+      invoiceId: result.insertId
+    }, { status: 201 });
   } catch (error) {
     console.warn("Error creating invoice:", error);
     return NextResponse.json(
@@ -132,16 +228,171 @@ export async function GET(req) {
 
 export async function PUT(req) {
   try {
-    const isProd = req.cookies.get('isProd')?.value;
+    const isProd = req.cookies.get('isProd')?.value === '1';
+    //const isProd = req.cookies.get('isProd')?.value;
 
-    console.log('isProd:', isProd);
+    console.log('isProd:', isProd, typeof isProd);
+    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
+    if (!authHeader) {
+      return NextResponse.json({ message: "Authorization header required" }, { status: 401 });
+    }
+    const token = authHeader.replace(/^Bearer\s+/i, '');
+    console.log("Token:", token);
     const body = await req.json();
-    const { invoiceId, invoiceNo, date, customerId, buyerProvince, sellerProvince, sellerProvinceId, scenarioCodeId, saleType, buyerType, fbrInvoiceRefNo, items, status } = body;
+    const { invoiceId, invoiceNo, sellerNTNCNIC, sellerBusinessName, sellerAddress, date, customerId, buyerProvince, sellerProvince, sellerProvinceId, scenarioCode, scenarioCodeId, saleType, buyerType, fbrInvoiceRefNo, items, status, toValidate } = body;
+    console.log(JSON.stringify({
+      toValidate,
+      invoiceId,
+      invoiceNo,
+      sellerNTNCNIC,
+      sellerBusinessName,
+      sellerAddress,
+      date,
+      customerId,
+      buyerProvince,
+      sellerProvince,
+      sellerProvinceId,
+      scenarioCode,
+      saleType,
+      buyerType,
+      fbrInvoiceRefNo,
+      items,
+      status
+    }, null, 2));
 
     if (!invoiceId) {
       return NextResponse.json({ message: 'invoiceId is required' }, { status: 400 });
     }
+    const FBR_VALIDATE_URL = isProd
+      ? process.env.VALIDATE_TO_FBR_PRODUCTION
+      : process.env.VALIDATE_TO_FBR_SANDBOX;
+    const [buyerInfoRows] = await db.query(
+      `SELECT 
+     cnic_inc AS buyerNTNCNIC, 
+     business_name AS buyerBusinessName, 
+     address AS buyerAddress, 
+     province AS buyerProvince 
+   FROM customers 
+   WHERE id = ?`,
+      [customerId]
+    );
 
+    const buyerInfo = buyerInfoRows[0];
+    console.log("Buyer Info:", buyerInfo);
+
+    const [sellerInfoRows] = await db.query(
+      `SELECT 
+     id as userId
+   FROM users 
+   WHERE cnic_ntn = ?`,
+      [sellerNTNCNIC]
+    );
+
+    const sellerInfo = sellerInfoRows[0];
+    console.log("Seller Info:", sellerInfo);
+    //   const [scenarioCodeRow] = awaitse db.query(
+    //     `SELECT 
+    //    code    
+    //  FROM scenario_codes 
+    //  WHERE id = ?`,
+    //     [scenarioCodeId]
+    //   );
+    //   const scenarioCode = scenarioCodeRow[0];
+    //   console.log("Scenario Code:", scenarioCode.code);
+
+    const fbrPayload = {
+      invoiceType: saleType,
+      invoiceDate: date,
+      sellerNTNCNIC: sellerNTNCNIC,
+      sellerBusinessName: sellerBusinessName,
+      sellerProvince: sellerProvince,
+      sellerAddress: sellerAddress,
+      buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+      buyerBusinessName: buyerInfo.buyerBusinessName,
+      buyerProvince: buyerInfo.buyerProvince,
+      buyerAddress: buyerInfo.buyerAddress,
+      buyerRegistrationType: buyerType,
+      invoiceRefNo: fbrInvoiceRefNo || "",
+
+      ...(!isProd && { scenarioId: scenarioCode }),
+
+      items: items.map(item => ({
+        hsCode: item.hsCode,
+        productDescription: item.description,
+        rate: item.rateDesc,
+        uoM: item.unit,
+        quantity: Number(item.qty),
+        totalValues: Number(item.totalValues || item.valueInclTax || 0),
+        valueSalesExcludingST: Number(item.valueSalesExcludingST),
+        fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+        salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+        salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+        extraTax: Number(item.extraTax || 0),
+        furtherTax: Number(item.furtherTax || 0),
+        sroScheduleNo: item.sroScheduleNo || "",
+        fedPayable: Number(item.fedPayable || 0),
+        discount: Number(item.discount || 0),
+        saleType: item.TransactionType || "",
+        sroItemSerialNo: item.sroItemSerialNo || ""
+      }))
+    };
+
+    if (toValidate) {
+      console.log("FBR Validation Payload:", fbrPayload);
+      const fbrResponse = await fetch(FBR_VALIDATE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(fbrPayload),
+      });
+      if (fbrResponse.status === 503 || fbrResponse.status === 504) {
+        return NextResponse.json({
+          message: "FBR Service is currently unavailable. Status reset to Pending.",
+          success: false
+        }, { status: 503 });
+      }
+      const fbrResult = await fbrResponse.json();
+
+      console.log("FBR Validation Response:", JSON.stringify(fbrResult, null, 2));
+      const fbrstatus = fbrResult.validationResponse.status;
+      console.log("FBR Validation Status:", fbrstatus, typeof fbrstatus);
+      if (fbrstatus !== "Valid") {
+        if (isProd) {
+          await db.query(
+            `UPDATE invoices_prod SET status = 'Failed' WHERE id = ?`,
+            [invoiceId]
+          );
+        } else {
+          await db.query(
+            `UPDATE invoices SET status = 'Failed' WHERE id = ?`,
+            [invoiceId]
+          );
+        }
+        await db.query(
+          `INSERT INTO invoices_error (userid, invoiceid, error) 
+   VALUES (?, ?, ?) 
+   ON DUPLICATE KEY UPDATE error = VALUES(error)`,
+          [sellerInfo.userId, invoiceId, JSON.stringify(fbrResult.validationResponse.invoiceStatuses)]
+        );
+        return NextResponse.json({
+          message: "FBR validation failed, See Error Logs",
+          fbrResponse: fbrResult
+        }, { status: 400 });
+      } else {
+        if (isProd) {
+          await db.query(
+            `UPDATE invoices_prod SET status = 'Validated' WHERE id = ?`,
+            [invoiceId]
+          );
+        } else {
+          await db.query(
+            `UPDATE invoices SET status = 'Validated' WHERE id = ?`,
+            [invoiceId]
+          );
+        }
+        return NextResponse.json({ message: "Invoice validated successfully", }, { status: 200 })
+      }
+
+    }
     // Build the update depending on provided fields
     const updates = [];
     const params = [];
@@ -163,7 +414,7 @@ export async function PUT(req) {
       return NextResponse.json({ message: 'No fields to update' }, { status: 400 });
     }
     let sql;
-    if (isProd === '1' || isProd === 'true') {
+    if (isProd === '1' || isProd == 'true') {
       sql = `UPDATE invoices_prod SET ${updates.join(', ')} WHERE id = ?`;
     } else {
       sql = `UPDATE invoices SET ${updates.join(', ')} WHERE id = ?`;
@@ -171,9 +422,23 @@ export async function PUT(req) {
 
     params.push(invoiceId);
 
-    await db.query(sql, params);
+    if (!toValidate) {
+      await db.query(sql, params);
+      if (isProd) {
+        await db.query(
+          `UPDATE invoices_prod SET status = 'Pending' WHERE id = ?`,
+          [invoiceId]
+        );
+      } else {
+        await db.query(
+          `UPDATE invoices SET status = 'Pending' WHERE id = ?`,
+          [invoiceId]
+        );
+      }
+      return NextResponse.json({ message: "Invoice  saved successfully", }, { status: 200 })
+    }
 
-    return NextResponse.json({ message: 'Invoice updated successfully' }, { status: 200 });
+    ;
   } catch (error) {
     console.warn('Error updating invoice:', error);
     return NextResponse.json({ message: 'Internal server error', error: error.message }, { status: 500 });

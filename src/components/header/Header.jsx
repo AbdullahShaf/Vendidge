@@ -28,7 +28,7 @@ export default function Header({ darkMode, setDarkMode, setSidebarOpen }) {
         </div>
 
         <div className="flex items-center gap-4">
-         
+
 
           <div className="relative cursor-pointer">
             <div
@@ -49,12 +49,19 @@ export default function Header({ darkMode, setDarkMode, setSidebarOpen }) {
                   <h3 className="font-semibold">Name:</h3>
                   <p className="text-sm text-gray-500 mb-2">{user?.business_name}</p>
                   <h3 className="font-semibold">NTN/CNIC:</h3>
-                  <p className="text-sm text-gray-500 mb-2">{ user?.cnic_ntn}</p>
+                  <p className="text-sm text-gray-500 mb-2">{user?.cnic_ntn}</p>
                 </div>
                 <button
                   onClick={() => {
-                    logout();   
-                    router.push("/"); 
+                    sessionStorage.setItem("userId", "");
+                    sessionStorage.setItem("sellerProvince", "");
+                    sessionStorage.setItem("sellerProvinceId", "");
+                    sessionStorage.setItem("sellerBusinessName", "");
+                    sessionStorage.setItem("sellerNTNCNIC", "");
+                    sessionStorage.setItem("sellerAddress", "");
+                    sessionStorage.setItem("sellerToken", "");
+                    logout();
+                    router.push("/");
                   }}
                   className={`w-full px-3 py-2 bg-blue-600 rounded-md hover:bg-red-500 hover:text-white transition text-center ${darkMode ? "text-white" : "text-white"}`}
                 >

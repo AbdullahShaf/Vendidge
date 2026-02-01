@@ -12,6 +12,7 @@ export default function InvoicePage({ darkMode }) {
     const [uomList, setUomList] = useState([]);
     const [saleTypeList, setSaleTypeList] = useState([]);
     const [transTypeList, setTransTypeList] = useState([]);
+    const [scenarioCodeToTransactionType, setScenarioCodeToTransactionType] = useState([]);
     const [latestInvoice, setLatestInvoice] = useState(null);
     const [scenarioCodes, setScenarioCodes] = useState([]);
     const [scenarioSearch, setScenarioSearch] = useState('');
@@ -36,6 +37,7 @@ export default function InvoicePage({ darkMode }) {
         exclTax: 0,
         tax: 0,
         inclTax: 0,
+        status: '',
         items: [{
             hsCode: '',
             description: '',
@@ -67,9 +69,12 @@ export default function InvoicePage({ darkMode }) {
     const [isEditMode, setIsEditMode] = useState(false);
     const [isReadOnly, setIsReadOnly] = useState(false);
     const [editingInvoiceId, setEditingInvoiceId] = useState(null);
+    const [hasChanged, setHasChanged] = useState(false);
 
     const [processingInvoiceId, setProcessingInvoiceId] = useState(null);
-
+    const [selectedError, setSelectedError] = useState(null);
+    const [isLoadingError, setIsLoadingError] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const emptyRow = {
         hsCode: "",
@@ -107,20 +112,13 @@ export default function InvoicePage({ darkMode }) {
         return token ? { Authorization: `Bearer ${token}`, Accept: "application/json" } : { Accept: "application/json" };
     };
 
-    // const [rows, setRows] = useState([
-    //     {"},{
-    //         invoiceNo: '',
-    //         date: '',
-    //         customerType: 'Individual',
-    //         customerName: '',
-    //         customerCnicNtn: '',
-    //         scenarioCode: '',
-    //         fbrInvNo: '',
-    //         amount: '',
-    //         salesTax: '',
-    //         total: '',
-    //     },
-    // ]);
+    // useEffect(() => {
+
+    //     console.log("🔥 ACTUAL STATE CHANGED:", invoiceForm.status);
+
+    // }, [invoiceForm?.status]);
+
+
     const [rows, setRows] = useState([{ ...emptyRow, rowId: genRowId() }]);
 
     const setRowFieldsById = (rowId, changes) => {
@@ -194,11 +192,12 @@ export default function InvoicePage({ darkMode }) {
                     // };
 
                     const headers = getFbrHeaders();
-                    const [hsResponse, uomResponse, transTypeResponse, saleTypeResponse] = await Promise.all([
+                    const [hsResponse, uomResponse, transTypeResponse, saleTypeResponse, scenarioCodeToTransactionTypeResponse] = await Promise.all([
                         fetch("/api/fbr/hsCode", { headers }),
                         fetch("/api/fbr/uom", { headers }),
                         fetch("/api/fbr/TransactionType", { headers }),
                         fetch("/api/fbr/saleType", { headers }),
+                        fetch("/api/scenarioCodeToTransactionType"),
                     ]);
 
                     if (!hsResponse.ok) {
@@ -213,18 +212,26 @@ export default function InvoicePage({ darkMode }) {
                     if (!saleTypeResponse.ok) {
                         throw new Error(`Sale Type API failed: ${saleTypeResponse.status}`);
                     }
+                    if (!scenarioCodeToTransactionTypeResponse.ok) {
+                        throw new Error(`Scenario Code to Transaction Type API failed: ${scenarioCodeToTransactionTypeResponse.status}`);
+                    }
 
                     const hsData = await hsResponse.json();
                     const uomData = await uomResponse.json();
                     const transTypeData = await transTypeResponse.json();
                     const saleTypeData = await saleTypeResponse.json();
-                    console.log("BEFORE HS codes and UOM data", uomData);
+                    const scenarioCodeToTransactionTypeData = await scenarioCodeToTransactionTypeResponse.json();
+                    console.log("BEFORE HS codes and UOM data", scenarioCodeToTransactionTypeData);
                     setHsCodes(Array.isArray(hsData) ? hsData : []);
                     setUomList(Array.isArray(uomData) ? uomData : []);
                     setTransTypeList(Array.isArray(transTypeData) ? transTypeData : []);
                     setSaleTypeList(Array.isArray(saleTypeData) ? saleTypeData : []);
-
-                    //    console.log("AFTER HS codes and transTypeData data", transTypeData);
+                    setScenarioCodeToTransactionType(
+                        Array.isArray(scenarioCodeToTransactionTypeData)
+                            ? scenarioCodeToTransactionTypeData
+                            : (scenarioCodeToTransactionTypeData.scenarioCodeToTransactionType || [])
+                    );
+                    console.log("AFTER HS codes and transTypeData data", transTypeData);
                     //    console.log("AFTER HS codes and saleTypeData data", saleTypeData);
 
 
@@ -264,49 +271,55 @@ export default function InvoicePage({ darkMode }) {
             setLoading(false);
         }
     };
+    let today;
+    let minDate;
 
-    // useEffect(() => {
-    //     const fetchProvinces = async () => {
-    //         try {
-    //             setLoading(true);
+    function getMinDate() {
+        //  today = new Date().toISOString().split("T")[0];
+        // today = new Date().toLocaleDateString('en-CA', {
+        //     timeZone: 'Asia/Karachi'
+        // });
+        // PKT date (server-safe)
+        today = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Asia/Karachi",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        }).format(new Date());
 
-    //             const token = process.env.NEXT_PUBLIC_FBR_BEARER_TOKEN;
+        // Default minDate = today
+        minDate = today;
 
-    //             if (!token) {
-    //                 throw new Error("API Bearer token is missing in environment variables");
-    //             }
+        // Filter invoices with success status
+        const successInvoices = invoices.filter(inv => inv.status === "Success");
 
-    //             const response = await fetch('https://gw.fbr.gov.pk/pdi/v1/provinces', {
-    //                 method: 'GET',
-    //                 headers: {
-    //                     'Authorization': `Bearer ${token}`,
-    //                     'Accept': 'application/json',
-    //                 },
-    //             });
+        if (successInvoices.length > 0) {
+            // console.log("success invocies ", successInvoices.length)
+            // Get the **last invoice** by date
+            const lastInvoice = successInvoices.reduce((latest, inv) => {
+                const invDate = new Date(inv.invoice_date);
+                return invDate > new Date(latest.invoice_date) ? inv : latest;
+            }, successInvoices[0]);
 
-    //             if (!response.ok) {
-    //                 if (response.status === 401) {
-    //                     throw new Error("Unauthorized – invalid or expired token");
-    //                 }
-    //                 if (response.status === 403) {
-    //                     throw new Error("Forbidden – you don't have permission");
-    //                 }
-    //                 throw new Error(`API error: ${response.status} ${response.statusText}`);
-    //             }
+            const d = new Date(lastInvoice.invoice_date);
 
-    //             const data = await response.json();
-    //             console.log("Fetched provinces:", data);
-    //             setProvinces(Array.isArray(data) ? data : []);
+            // Format in local YYYY-MM-DD
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, "0");
+            const day = String(d.getDate()).padStart(2, "0");
 
-    //         } catch (err) {
-    //             console.warn("Failed to fetch provinces:", err);
-    //         } finally {
-    //             setLoading(false);
-    //         }
-    //     };
+            minDate = `${year}-${month}-${day}`;
+            //  console.log("minDate", minDate);
+        } else {
+            // const lastMonthDate = new Date();
+            // lastMonthDate.setDate(lastMonthDate.getDate() - 30);
+            // minDate = lastMonthDate.toISOString().split("T")[0];
+            minDate = "";
+            // console.log("else case minDate", minDate);
+        }
 
-    //     fetchProvinces();
-    // }, []);
+    }
+
     useEffect(() => {
         const fetchProvinces = async () => {
             try {
@@ -352,7 +365,7 @@ export default function InvoicePage({ darkMode }) {
         //console.log("Fetching rate for date:", date, "transTypeId:", transTypeId, "provinceCode:", provinceCode);
 
         if (!date || !transTypeId || !provinceCode) {
-            console.warn("Missing required params for rate fetch", { date, transTypeId, provinceCode });
+            //  console.warn("Missing required params for rate fetch", { date, transTypeId, provinceCode });
             //   handleInputChange(index, "rate", ""); // clear or fallback
             return;
         }
@@ -431,7 +444,7 @@ export default function InvoicePage({ darkMode }) {
         // Re-fetch rates for all rows when date or seller province id changes
         // NOTE: intentionally do NOT depend on rows.length so adding a new row doesn't trigger re-fetch for existing rows.
         if (!invoiceForm.date || !invoiceForm.sellerProvinceId) {
-            console.log("Date or seller province id missing, skipping rate fetch", invoiceForm.date, invoiceForm.sellerProvinceId);
+            // console.log("Date or seller province id missing, skipping rate fetch", invoiceForm.date, invoiceForm.sellerProvinceId);
             return;
         }
         rows.forEach((r, idx) => {
@@ -465,7 +478,7 @@ export default function InvoicePage({ darkMode }) {
         //console.log("Fetching SRO for date:", date, "resolved rateId:", rateId, "provinceCode:", provinceCode);
 
         if (!date || (!rateId && rateId !== 0) || !provinceCode) {
-            console.warn('Missing required params for SRO fetch', { date, rateId, provinceCode });
+            // console.warn('Missing required params for SRO fetch', { date, rateId, provinceCode });
             //handleInputChange(index, 'sroOptions', []);
             return;
         }
@@ -547,7 +560,7 @@ export default function InvoicePage({ darkMode }) {
         const sroId = rowOverride?.sroScheduleId ?? rows[index]?.sroScheduleId ?? '';
 
         if (!date || !sroId) {
-            console.warn('Missing date or sroId for SRO items fetch');
+            // console.warn('Missing date or sroId for SRO items fetch');
             setRowFieldsById(rowId, { sroItemOptions: [], sroItemId: '', sroItemSerialNo: '' });
             return;
         }
@@ -672,15 +685,24 @@ export default function InvoicePage({ darkMode }) {
             //     sroItemSerialNo: item.sroItemSerialNo || ""
             //   }))
             //};
-            console.log("Buyer Type:", invoiceForm.buyerType);
+            // console.log("Buyer Type:", invoiceForm.buyerType);
+            const value = document.cookie
+                .split('; ')
+                .find(row => row.startsWith('isProd='))
+                ?.split('=')[1];
+            console.log("isProd flag from cookies:", value, typeof value);
+
+            const isProd = value === '1';
+            console.log("isProd flag after normalize:", isProd, typeof isProd);
             const payload = (() => {
                 switch (invoice.scenario_code) {
                     case "SN001":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            // invoiceDate: new Date(invoice.invoice_date)
+                            //     .toISOString()
+                            //     .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -690,7 +712,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -717,9 +740,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN002":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -729,7 +750,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -756,9 +778,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN003":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -768,7 +788,9 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
+                            buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
                                 productDescription: item.description,
@@ -794,9 +816,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN004":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -806,7 +826,9 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
+                            buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
                                 productDescription: item.description,
@@ -832,9 +854,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN005":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -844,7 +864,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -871,9 +892,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN006":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -883,7 +902,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -910,9 +930,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN007":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -921,7 +939,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             sellerAddress: sessionStorage.getItem("sellerAddress") || "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
                             items: items.map(item => ({
@@ -949,9 +968,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN008":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -961,7 +978,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             sellerAddress: sessionStorage.getItem("sellerAddress") || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -988,9 +1006,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN009":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1000,7 +1016,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -1027,9 +1044,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN010":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1039,7 +1054,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -1066,9 +1082,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN011":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1079,7 +1093,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
                             dataSource: "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -1106,9 +1121,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN012":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1118,7 +1131,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -1145,9 +1159,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN013":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1157,7 +1169,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -1184,9 +1197,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN014":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1196,7 +1207,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -1223,9 +1235,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN015":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1235,7 +1245,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             additional1: "",
                             additional2: "",
@@ -1265,9 +1276,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN016":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1277,7 +1286,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -1304,9 +1314,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN017":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1316,7 +1324,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -1343,9 +1352,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN018":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1355,7 +1362,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             buyerRegistrationType: invoice.buyerType,
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -1382,9 +1390,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN019":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1395,7 +1401,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
                             buyerRegistrationType: invoice.buyerType,
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
                                 productDescription: item.description,
@@ -1421,9 +1428,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN020":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1434,7 +1439,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             buyerRegistrationType: invoice.buyerType,
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
                                 productDescription: item.description,
@@ -1460,9 +1466,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN021":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1473,7 +1477,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
                             buyerRegistrationType: invoice.buyerType,
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
                                 productDescription: item.description,
@@ -1499,9 +1504,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN022":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1511,7 +1514,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             buyerRegistrationType: invoice.buyerType,
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -1538,9 +1542,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN023":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1550,7 +1552,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerProvince: invoice.buyerProvince,
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             buyerRegistrationType: invoice.buyerType,
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
@@ -1577,9 +1580,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN024":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1590,7 +1591,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             buyerRegistrationType: invoice.buyerType,
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
                                 productDescription: item.description,
@@ -1616,9 +1618,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN025":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1629,7 +1629,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             buyerRegistrationType: invoice.buyerType,
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
                                 productDescription: item.description,
@@ -1655,9 +1656,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN026":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1668,7 +1667,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             buyerRegistrationType: invoice.buyerType,
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
                                 productDescription: item.description,
@@ -1694,9 +1694,7 @@ export default function InvoicePage({ darkMode }) {
                     case "SN027":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1707,7 +1705,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             buyerRegistrationType: invoice.buyerType,
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
                                 productDescription: item.description,
@@ -1730,12 +1729,10 @@ export default function InvoicePage({ darkMode }) {
                                 sroItemSerialNo: item.sroItemSerialNo || ""
                             }))
                         };
-                    case "SN027":
+                    case "SN028":
                         return {
                             invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date)
-                                .toISOString()
-                                .split("T")[0],
+                            invoiceDate: formatDateForInput(invoice.invoice_date),
                             sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
                             sellerProvince: invoice.sellerProvince,
                             sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
@@ -1746,7 +1743,8 @@ export default function InvoicePage({ darkMode }) {
                             buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
                             invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
                             buyerRegistrationType: invoice.buyerType,
-                            scenarioId: invoice.scenario_code,
+                            //scenarioId: invoice.scenario_code,
+                            ...(!isProd && { scenarioId: invoice.scenario_code }),
                             items: items.map(item => ({
                                 hsCode: item.hsCode,
                                 productDescription: item.description,
@@ -1769,34 +1767,8 @@ export default function InvoicePage({ darkMode }) {
                                 sroItemSerialNo: item.sroItemSerialNo || ""
                             }))
                         };
-
-                    // ================= DEFAULT =================
-                    default:
-                        return {
-                            invoiceType: invoice.saleType,
-                            invoiceDate: new Date(invoice.invoice_date).toISOString().split("T")[0],
-                            sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
-                            sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
-                            sellerProvince: invoice.sellerProvince,
-                            sellerAddress: sessionStorage.getItem("sellerAddress") || "",
-                            buyerNTNCNIC: invoice.ntn_cnic,
-                            buyerBusinessName: invoice.customer_name,
-                            buyerProvince: invoice.buyerProvince,
-                            buyerAddress: customers.find(c => c.id === invoice.customer_id)?.address || "",
-                            buyerRegistrationType: invoice.buyerType,
-                            invoiceRefNo: invoice.fbrInvoiceRefNo ?? "",
-                            scenarioId: invoice.scenario_code,
-                            items: items.map(item => ({
-                                hsCode: item.hsCode,
-                                productDescription: item.description,
-                                rate: item.rateDesc,
-                                uoM: item.unit,
-                                quantity: Number(item.qty) || 0
-                            }))
-                        };
                 }
             })();
-
             const DemoPayload = {
                 "invoiceType": "Sale Invoice",
                 "invoiceDate": "2025-12-21",
@@ -1835,7 +1807,11 @@ export default function InvoicePage({ darkMode }) {
             }
             // console.log("FINAL Dummy FBR PAYLOAD", DemoPayload);
             console.log("FINAL FBR PAYLOAD", payload);
-
+            const payloadWithIds = {
+                ...payload,
+                userId: sessionStorage.getItem("userId"),
+                invoiceId: invoiceId,
+            };
             const res = await fetch(
                 "/api/fbr/postInvoiceToFBR",
                 {
@@ -1844,7 +1820,7 @@ export default function InvoicePage({ darkMode }) {
                         ...getFbrHeaders(),
                         "Content-Type": "application/json",
                     },
-                    body: JSON.stringify(payload),
+                    body: JSON.stringify(payloadWithIds),
                     cache: "no-store",
                 }
             );
@@ -1862,34 +1838,34 @@ export default function InvoicePage({ darkMode }) {
                 "Posted successfully";
 
             alert(`Invoice result: ${message}`);
-            if (data?.fbrResponse?.validationResponse?.status === "Invalid") {
-                await fetch(`/api/invoice-status`, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        userId: sessionStorage.getItem("userId"),
-                        id: invoiceId,
-                        fbrInvoiceNo: null,
-                        status: 'Failed',
-                    }),
-                });
-            } else {
-                //console.log("Updating invoice status to Success with FBR invoice no:", data?.fbrResponse?.invoiceNumber);
-                await fetch(`/api/invoice-status`, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        userId: sessionStorage.getItem("userId"),
-                        id: invoiceId,
-                        fbrInvoiceNo: data?.fbrResponse?.invoiceNumber || null,
-                        status: 'Success',
-                    }),
-                });
-            }
+            // if (data?.fbrResponse?.validationResponse?.status === "Invalid") {
+            //     await fetch(`/api/invoice-status`, {
+            //         method: 'PUT',
+            //         headers: {
+            //             'Content-Type': 'application/json',
+            //         },
+            //         body: JSON.stringify({
+            //             userId: sessionStorage.getItem("userId"),
+            //             id: invoiceId,
+            //             fbrInvoiceNo: null,
+            //             status: 'Failed',
+            //         }),
+            //     });
+            // } else {
+            //     //console.log("Updating invoice status to Success with FBR invoice no:", data?.fbrResponse?.invoiceNumber);
+            //     await fetch(`/api/invoice-status`, {
+            //         method: 'PUT',
+            //         headers: {
+            //             'Content-Type': 'application/json',
+            //         },
+            //         body: JSON.stringify({
+            //             userId: sessionStorage.getItem("userId"),
+            //             id: invoiceId,
+            //             fbrInvoiceNo: data?.fbrResponse?.invoiceNumber || null,
+            //             status: 'Success',
+            //         }),
+            //     });
+            // }
 
         } catch (err) {
             // console.warn("Error posting invoice to FBR:", err.message);
@@ -1923,16 +1899,49 @@ export default function InvoicePage({ darkMode }) {
             setProcessingInvoiceId(null);
         }
     };
+    const handleErrorClick = async (invoiceId) => {
+        setIsLoadingError(invoiceId);
+        try {
+            // Replace with your actual API endpoint
+            const response = await fetch(`/api/invoices-error?id=${invoiceId}`);
+            const data = await response.json();
 
-    const getStatusBadge = (status) => {
+            const rawData = data.errorData;
+
+            const parsed = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+
+            console.log("Parsed error data:", parsed);
+            setSelectedError(parsed);
+        } catch (e) {
+            console.error("Fetch error:", e);
+            alert("Failed to load error details.");
+        } finally {
+            setIsLoadingError(null);
+        }
+    };
+    const getStatusBadge = (status, invId) => {
         const map = {
-            Failed: 'bg-red-100 text-red-700',
+            Failed: 'bg-red-100 text-red-700 cursor-pointer hover:bg-red-200 border border-red-300',
             Pending: 'bg-yellow-100 text-yellow-700',
+            Validated: 'bg-indigo-100 text-indigo-700',
             Success: 'bg-green-100 text-green-700',
+            Processing: 'bg-blue-100 text-blue-700',
         };
+        // return (
+        //     <span className={`px-3 py-1 rounded-full text-xs font-semibold ${map[status]}`}>
+        //         {status}
+        //     </span>
+        // );
         return (
-            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${map[status]}`}>
+            <span
+                onClick={() => status === 'Failed' ? handleErrorClick(invId) : null}
+                className={`px-3 py-1 rounded-full text-xs font-semibold relative ${map[status]}`}
+            >
                 {status}
+                {/* Small loading spinner inside badge if clicking */}
+                {(isLoadingError === invId) && status === 'Failed' && (
+                    <span className="ml-2 animate-spin inline-block">...</span>
+                )}
             </span>
         );
     };
@@ -1952,23 +1961,27 @@ export default function InvoicePage({ darkMode }) {
                 const matched = provinces.find(p => String(p.stateProvinceCode) === vStr || String(p.id) === vStr || (p.stateProvinceDesc || '').trim() === vStr);
                 return matched ? matched.stateProvinceDesc : (typeof val === 'string' ? val : '');
             };
-
+            // console.log("view inv", inv.scenario_code);
+            const currentScenario = inv.scenario_code;
+            console.log("status", inv.status);
             setInvoiceForm((prev) => ({
                 ...prev,
                 invoiceNo: inv.invoice_no || '',
                 date: formatDateForInput(inv.invoice_date) || '',
                 customer: customerDisplay || prev.customer,
                 customerId: inv.customer_id || prev.customerId,
-                scenarioCode: matchedScenario ? matchedScenario.code : (inv.scenario_code || prev.scenarioCode),
-                scenarioCodeId: matchedScenario ? matchedScenario.id : prev.scenarioCodeId,
+                //scenarioCode: inv.scenario_code,
+                scenarioCode: currentScenario,
+                scenarioCodeId: inv.scenarioCodeId,
                 buyerProvince: resolveProvinceDesc(inv.buyerProvince ?? inv.province ?? ''),
                 sellerProvince: resolveProvinceDesc(inv.sellerProvince ?? ''),
-                sellerProvinceId: inv.sellerProvinceId || prev.sellerProvinceId,
-                saleType: inv.saleType || prev.saleType,
+                sellerProvinceId: inv.sellerProvinceId,
+                saleType: inv.saleType,
                 //registrationNo: inv.registrationNo || prev.registrationNo,
                 buyerType: inv.buyerType,
                 // Ensure FBR reference is loaded from whichever column name is present
                 fbrInvoiceRefNo: inv.fbrInvoiceRefNo ?? '',
+                status: inv.status || '',
             }));
 
             setCustomerSearch(customerDisplay);
@@ -1985,6 +1998,7 @@ export default function InvoicePage({ darkMode }) {
                         rate: r.rate === undefined || r.rate === null ? '' : String(r.rate),
                         rateId: r.rateId ?? r.rate_id ?? 0,
                         rateDesc: r.rateDesc ?? r.rate_desc ?? '',
+                        salesTaxApplicable: r.salesTaxApplicable ?? 0,
                         TransactionTypeId: r.TransactionTypeId ?? r.TransactionTypeId ?? 0,
                         TransactionType: r.TransactionType ?? r.TransactionType ?? '',
                         sroOptions: r.sroOptions ?? [],
@@ -1997,7 +2011,7 @@ export default function InvoicePage({ darkMode }) {
                     }))
                     : [{ ...emptyRow, rowId: genRowId() }];
                 // ensure existing sanitized rows include a stable rowId
-                const enriched = sanitized.map(s => ({ ...s, rowId: s.rowId ?? genRowId() }));
+                const enriched = sanitized.map(s => ({ ...s, rowId: s.rowId ?? genRowId(), scenarioCode: currentScenario }));
                 setRows(enriched);
 
                 // Proactively fetch rate options and SRO options using the sanitized rows so edit mode displays
@@ -2127,17 +2141,32 @@ export default function InvoicePage({ darkMode }) {
                     if (r && (r.rateId || r.rate)) fetchSroScheduleOptions(idx);
                 });
             }, 0);
-        } else {
-            console.log("Form change:", name, value);
-            setInvoiceForm(prev => ({ ...prev, [name]: value }));
+        }
+        //else {
+        //     // console.log("Form change:", name, value);
+        //     setInvoiceForm(prev => ({ ...prev, [name]: value }));
+        // }
+        else {
+            setInvoiceForm(prev => {
+                const updatedForm = { ...prev, [name]: value };
+
+                // Clear FBR Invoice Ref No if saleType is changed away from "Debit Note"
+                if (name === "saleType" && value !== "Debit Note") {
+                    updatedForm.fbrInvoiceRefNo = "";
+                }
+
+                return updatedForm;
+            });
         }
     };
 
-
-    const handleInvoiceSubmit = async (e) => {
+    const handleInvoiceSubmit = async (e, forceValidate = false) => {
         console.log("Submitting invoice...");
-        e.preventDefault();
-
+        // e.preventDefault();
+        if (e && typeof e.preventDefault === 'function') {
+            e.preventDefault();
+        }
+        setIsSubmitting(true);
         // setRows(prev => [
         //     ...prev,
         //     {
@@ -2163,6 +2192,9 @@ export default function InvoicePage({ darkMode }) {
             buyerProvince: invoiceForm.buyerProvince,
             sellerProvince: invoiceForm.sellerProvince || sessionStorage.getItem("sellerProvince") || "",
             sellerProvinceId: Number(invoiceForm.sellerProvinceId) || Number(sessionStorage.getItem("sellerProvinceId") || 0),
+            sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
+            sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
+            sellerAddress: sessionStorage.getItem("sellerAddress") || "",
             scenarioCode: invoiceForm.scenarioCode,
             scenarioCodeId: invoiceForm.scenarioCodeId,
             saleType: invoiceForm.saleType,
@@ -2198,36 +2230,75 @@ export default function InvoicePage({ darkMode }) {
             })),
         };
         console.log("Invoice to submit:", invoiceToSubmit);
+        // console.log(sessionStorage.getItem("sellerProvince"));
+        // console.log(sessionStorage.getItem("sellerBusinessName"));
+        // console.log(sessionStorage.getItem("sellerNTNCNIC"));
+        // console.log(sessionStorage.getItem("sellerAddress"));
+        function isEmpty(value) {
+            return value === null || value === undefined || value === "";
+        }
+
+        if (
+            isEmpty(sessionStorage.getItem("sellerProvince")) ||
+            isEmpty(sessionStorage.getItem("sellerBusinessName")) ||
+            isEmpty(sessionStorage.getItem("sellerNTNCNIC")) ||
+            isEmpty(sessionStorage.getItem("sellerAddress"))
+        ) {
+            alert("user info is missing, Please add info in Profile Screen");
+            return;
+        }
+
         try {
+            console.log("isEdit mode ", isEditMode, " editingInvoiceId ", editingInvoiceId);
             if (isEditMode && editingInvoiceId) {
 
                 const res = await fetch('/api/invoices-crud', {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ invoiceId: editingInvoiceId, ...invoiceToSubmit }),
+                    headers: { 'Content-Type': 'application/json', ...getFbrHeaders() },
+                    body: JSON.stringify({
+                        invoiceId: editingInvoiceId,
+                        toValidate: forceValidate,
+                        ...invoiceToSubmit,
+                    }),
                 });
 
                 const data = await res.json();
+                alert(`${data.message}`);
                 if (res.ok) {
-                    setShowForm(false);
-                    setIsEditMode(false);
+                    //setShowForm(false);
+                    //  setIsEditMode(false);
+                    console.log("ok");
+                    setHasChanged(false)
                     setIsReadOnly(false);
-                    setEditingInvoiceId(null);
-                    fetchInvoices();
-                    minDate();
+                    getMinDate();
+                    const newStatus = forceValidate ? 'Validated' : 'Pending';
+                    setInvoiceForm(prev => ({
+                        ...prev,
+                        status: newStatus
+                    }));
+                    //    await fetchInvoices();
+
                 } else {
+                    console.log("not ok");
                     console.warn('Error updating invoice:', data);
+                    setInvoiceForm(prev => ({
+                        ...prev,
+                        status: 'Failed'
+                    }));
+                    //  await fetchInvoices();
                 }
+                console.log('status', invoiceForm.status);
+
             } else {
 
                 const res = await fetch("/api/invoices-crud", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: { "Content-Type": "application/json", ...getFbrHeaders() },
                     body: JSON.stringify(invoiceToSubmit),
                 });
 
                 const data = await res.json();
-
+                alert(`${data.message}`);
                 if (res.ok) {
                     setInvoiceForm({
                         invoiceNo: "",
@@ -2283,14 +2354,19 @@ export default function InvoicePage({ darkMode }) {
                     setScenarioSearch("");
                     setShowForm(false);
                     fetchInvoices();
+                    setHasChanged(false);
                     //  console.log("min date from submit to DB");
                     getMinDate();
+
                 } else {
                     console.warn("Error saving invoice:");
                 }
             }
         } catch (err) {
             console.warn("Network error:", err);
+
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -2336,7 +2412,7 @@ export default function InvoicePage({ darkMode }) {
         }
     };
 
-    const printInvoice = async () => {
+    const printInvoice = async (targetInvoice) => {
         try {
 
             // await handleRegistrationCheck(invoiceForm.registrationNo);
@@ -2345,50 +2421,92 @@ export default function InvoicePage({ darkMode }) {
             const sellerAddress = sessionStorage.getItem('sellerAddress') || '';
             const sellerNTN = sessionStorage.getItem('sellerNTNCNIC') || '';
 
-            const invoiceNo = invoiceForm.invoiceNo || '';
-            const invoiceDate = invoiceForm.date || new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-            const customerName = invoiceForm.customer || '';
-            const customerAddress = customers.find(c => c.id === invoiceForm.customerId)?.address || "";
+            const invoiceNo = invoiceForm.invoiceNo || targetInvoice.invoice_no || '';
+            const invoiceDate = formatDateForInput(invoiceForm.date || targetInvoice.invoice_date) || '';
+            const customerName = invoiceForm.customer || targetInvoice.customerName || '';
+            const activeCustomerId = targetInvoice
+                ? targetInvoice.customer_id  // Use snake_case from table object
+                : invoiceForm.customerId;
+            const customerAddress = customers.find(c => c.id === activeCustomerId)?.address || "";
             // const customerAddress = invoiceForm.buyerAddress || '';
-            const customerProvince = invoiceForm.buyerProvince || '';
+            const customerProvince = invoiceForm.buyerProvince || targetInvoice.buyerProvince || '';
             // const customerNTN =
             //     customers.find(c => c.id === invoiceForm.customerId)?.ntn ||
             //     customers.find(c => c.id === invoiceForm.customerId)?.cnic_inc ||
             //     "";
-            const customer = customers.find(c => c.id === invoiceForm.customerId);
+            const customer = customers.find(c => c.id === activeCustomerId);
 
-            const idLabel = customer?.ntn ? "N.T.N" : "C.N.I.C";
+            const idLabel = customer?.ntn ? "NTN" : "CNIC";
             const idValue = customer?.ntn || customer?.cnic_inc || "";
 
 
             const currency = 'PKR';
+            const isProd =
+                document.cookie
+                    .split('; ')
+                    .find(row => row.startsWith('isProd='))
+                    ?.split('=')[1] === '1';
+            const invoiceMetaLabel = isProd
+                ? 'Transaction Type'
+                : 'Scenario';
+            console.log("Print invoice transactionType", rows[0]);
+            console.log("Print invoice scenario code", targetInvoice.items);
+            let activeRows = [];
+            if (targetInvoice && targetInvoice.items) {
+                // Parse if it's a string, otherwise use as is
+                activeRows = typeof targetInvoice.items === 'string'
+                    ? JSON.parse(targetInvoice.items)
+                    : targetInvoice.items;
+            } else {
+                activeRows = rows; // Fallback to form state rows
+            }
+            const activeScenarioCode = targetInvoice.scenario_code || invoiceForm.scenarioCode || '';
+
+            const scenarioCodeDescription = scenarioCodes.find(sc => sc.code === activeScenarioCode)?.description || '';
+            const invoiceMetaValue = isProd
+                ? (activeRows[0]?.TransactionType || '-')
+                : `${activeScenarioCode || '-'} - ${scenarioCodeDescription}`;
+
             const scenarioCode = invoiceForm.scenarioCode || '';
-            const tableRows = rows.map((r, index) => `
+            // console.log("Print scenario code", scenarioCode);
+            // console.log("Print sale tax", rows[0].salesTaxApplicable);
+            const tableRows = activeRows.map((r, index) => `
   <tr>
-    <td style="border:1px solid #000; padding:4px; text-align:center;">${r.hsCode || ''}</td>
-    <td style="border:1px solid #000; padding:4px;">${r.description || ''}</td>
-    <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.singleUnitPrice || 0)}</td>
-    <td style="border:1px solid #000; padding:4px; text-align:center;">${r.discount || 0}</td>
-    <td style="border:1px solid #000; padding:4px; text-align:center;">${r.qty || ''}</td>
-    <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.valueSalesExcludingST || r.totalValues || 0)}</td>
-    <td style="border:1px solid #000; padding:4px; text-align:right;">(${r.rate}%)<br>${formatNumber(r.salesTaxApplicable || 0)}</td>
+    <td style="border:1px solid #000; padding:4px; text-align:center;">${index + 1 || ''}</td>
+    <td style="border:1px solid #000; padding:4px; text-align:left; line-height:1.5;"><strong>${r.hsCode}</strong> - ${r.description}<br>
+    <strong>UoM:</strong> ${r.unit || ''}${r.sroScheduleNo || r.sroItemSerialNo ? `<br><strong>SRO Schedule:</strong> 
+    ${r.sroScheduleNo || ''}<br><strong>SRO ITEM Sr. No:</strong> ${r.sroItemSerialNo || ''}` : ''}</td>
+    <td style="border:1px solid #000; padding:4px; text-align:center; line-height:1.5;">${formatNumber(r.singleUnitPrice || 0)} X
+    ${formatNumber(r.qty || 0)} - ${formatNumber(r.discount || 0)}<br><strong>${formatNumber(r.valueSalesExcludingST || 0)}</strong></td>
+    <td style="border:1px solid #000; padding:4px; text-align:right; line-height:1.5;">${invoiceForm.scenarioCode === 'SN008' ||
+                    invoiceForm.scenarioCode === 'SN027' ? `${r.rateDesc} on <br>Retail: ${formatNumber(r.fixedNotifiedValueOrRetailPrice || 0)}<br><strong>${formatNumber(r.salesTaxApplicable || 0)}</strong>` : `(${r.rateDesc})<br>${formatNumber(r.salesTaxApplicable || 0)}`}</td>
     <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.furtherTax || 0)}</td>
     <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.extraTax || 0)}</td>  
+    <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.fedPayable || 0)}</td>
     <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.salesTaxWithheldAtSource || 0)}</td>
     <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.totalValues || r.valueInclTax || 0)}</td>
   </tr>
 `).join('');
 
-            const totalDisc = rows.reduce((sum, r) => sum + Number(r.discount || 0), 0);
-            const totalQty = rows.reduce((sum, r) => sum + Number(r.qty || 0), 0);
-            const totalFurthurTax = rows.reduce((sum, r) => sum + Number(r.furtherTax || 0), 0);
-            const totalExtraTax = rows.reduce((sum, r) => sum + Number(r.extraTax || 0), 0);
-            const totalSalesTaxWithheldAtSource = rows.reduce((sum, r) => sum + Number(r.salesTaxWithheldAtSource || 0), 0);
-            const totalExclTax = rows.reduce((sum, r) => sum + Number(r.valueSalesExcludingST || 0), 0);
-            const totalTax = rows.reduce((sum, r) => sum + Number(r.salesTaxApplicable || 0), 0);
+            const totalDisc = activeRows.reduce((sum, r) => sum + Number(r.discount || 0), 0);
+            const totalQty = activeRows.reduce((sum, r) => sum + Number(r.qty || 0), 0);
+            const totalFixednotifiedretailPrice = activeRows.reduce((sum, r) => sum + Number(r.fixedNotifiedValueOrRetailPrice || 0), 0);
+            const totalFedPayable = activeRows.reduce((sum, r) => sum + Number(r.fedPayable || 0), 0);
+            const totalFurthurTax = activeRows.reduce((sum, r) => sum + Number(r.furtherTax || 0), 0);
+            const totalExtraTax = activeRows.reduce((sum, r) => sum + Number(r.extraTax || 0), 0);
+            const totalSalesTaxWithheldAtSource = activeRows.reduce((sum, r) => sum + Number(r.salesTaxWithheldAtSource || 0), 0);
+            const totalExclTax = activeRows.reduce((sum, r) => sum + Number(r.valueSalesExcludingST || 0), 0);
+            const totalSaleTaxApplicable = activeRows.reduce((sum, r) => sum + Number(r.salesTaxApplicable || 0), 0);
+            const totalTax = activeRows.reduce((sum, r) => sum + Number(r.salesTaxApplicable || 0), 0)
+                + activeRows.reduce((sum, r) => sum + Number(r.salesTaxWithheldAtSource || 0), 0) + activeRows.reduce((sum, r) => sum + Number(r.extraTax || 0), 0) +
+                activeRows.reduce((sum, r) => sum + Number(r.furtherTax || 0), 0) + activeRows.reduce((sum, r) => sum + Number(r.fedPayable || 0), 0);
+            // console.log("total tax ", totalTax);
             const totalInclTax = totalExclTax + totalTax;
 
-            const fbrInvoiceNo = invoices.find(inv => inv.invoice_no === invoiceForm.invoiceNo)?.fbr_invoice_no || '';
+            const fbrInvoiceNo = targetInvoice
+                ? targetInvoice.fbr_invoice_no
+                : (invoices.find(inv => inv.invoice_no === invoiceForm.invoiceNo)?.fbr_invoice_no || '');
+
             let qrCodeUrl = "";
 
             if (fbrInvoiceNo) {
@@ -2457,39 +2575,39 @@ export default function InvoicePage({ darkMode }) {
           <tr><td><strong>Invoice Type</strong></td><td>Sale Invoice</td></tr>
           <tr><td><strong>Buyer Type</strong></td><td>${invoiceForm.buyerType || ''}</td></tr>
           <tr><td><strong>Currency</strong></td><td>${currency || 'PKR'}</td></tr>
-          <tr><td><strong>Scenario Code</strong></td><td>${scenarioCode || '-'}</td></tr>
+          <tr>
+            <td><strong>${invoiceMetaLabel}</strong></td>
+            <td>${invoiceMetaValue}</td>
+          </tr>
         </table>
       </td>
     </tr>
   </table>
 
   <!-- Items Table – FIXED -->
-  <table style="width:100%; border-collapse:collapse; font-size:11px; margin-bottom:12px; border:1px solid #000;">
+  <table style="width:100%; border-collapse:collapse; font-size:10px; margin-bottom:12px; border:1px solid #000;">
     <thead style="background:#d9d9d9; font-weight:bold;">
       <tr>
-        <th style="border:1px solid #000; padding:5px; width:8%;">HS Code</th>
-        <th style="border:1px solid #000; padding:5px; width:30%;">Desc</th>
-        <th style="border:1px solid #000; padding:5px; width:11%;">Unit Rate</th>
-        <th style="border:1px solid #000; padding:5px; width:11%;">Discount</th>
-        <th style="border:1px solid #000; padding:5px; width:7%;">Qty</th>
-        <th style="border:1px solid #000; padding:5px; width:13%;">Value Excl. Sales Tax</th>
-        <th style="border:1px solid #000; padding:5px; width:13%;">Sales Tax Amount</th>
-        <th style="border:1px solid #000; padding:5px; width:13%;">Further Tax</th>
-        <th style="border:1px solid #000; padding:5px; width:13%;">Extra Tax</th>
-        <th style="border:1px solid #000; padding:5px; width:13%;">With Held Sales Tax</th>   
-        <th style="border:1px solid #000; padding:5px; width:14%;">Value Incl. Sales Tax</th>
+        <th style="border:1px solid #000; padding:2px; width:4%;">Sr No.</th>
+        <th style="border:1px solid #000; padding:2px; width:30%; text-align:left;">Particulars</th>
+        <th style="border:1px solid #000; padding:2px; width:14%;">Excl. Sales Tax<br>(Unit X Qty) - Disc</th>
+        <th style="border:1px solid #000; padding:2px; width:14%;">Sales Tax</th>
+        <th style="border:1px solid #000; padding:2px; width:6%;">Further Tax</th>
+        <th style="border:1px solid #000; padding:2px; width:6%;">Extra Tax</th>
+        <th style="border:1px solid #000; padding:2px; width:6%;">FED</th>
+        <th style="border:1px solid #000; padding:2px; width:6%;">WH-ST</th>   
+        <th style="border:1px solid #000; padding:2px; width:22%; text-align:right;">Total Amount</th>
       </tr>
     </thead>
     <tbody>
       ${tableRows}
       <tr style="font-weight:bold; background:#f2f2f2;">
-        <td colspan="3" style="border:1px solid #000; padding:6px; text-align:right;">Total</td>
-        <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalDisc)}</td>
-        <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalQty)}</td>
+        <td colspan="2" style="border:1px solid #000; padding:6px; text-align:right;">Total</td>
         <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalExclTax)}</td>
-        <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalExclTax)}</td>
+        <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalSaleTaxApplicable)}</td>
         <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalFurthurTax)}</td>
         <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalExtraTax)}</td>
+        <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalFedPayable)}</td>
         <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalSalesTaxWithheldAtSource)}</td>
         <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalInclTax)}</td>
       </tr>
@@ -2568,6 +2686,7 @@ ${fbrInvoiceNo ? `
             alert('Failed to generate print view.\nUse Ctrl+P to print manually.');
         }
     };
+
     const formatNumber = (num) => {
         return Number(num).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
     };
@@ -2599,7 +2718,7 @@ ${fbrInvoiceNo ? `
     //     }
     // };
     const handleInputChange = (index, name, value) => {
-        // console.log(`Row ${index} change:`, name, value);
+        //console.log(`Row ${index} change:`, name, value);
 
         setRows((prevRows) => {
             const newRows = [...prevRows];
@@ -2716,79 +2835,6 @@ ${fbrInvoiceNo ? `
                 }
             }
 
-            /* ===== CALCULATE TOTAL VALUES HERE ===== */
-            // const n = (v) => (isNaN(Number(v)) ? 0 : Number(v));
-
-            // const price = n(row.singleUnitPrice);
-            // const quantity = n(row.qty);
-            // const discount = n(row.discount);
-            // const fnvrp = n(row.fixedNotifiedValueOrRetailPrice);
-
-            // const effectiveUnitPrice = Math.max(price, fnvrp);
-            // const subtotal = effectiveUnitPrice * quantity;
-            // const netValue = Math.max(0, subtotal - discount);
-            // row.valueSalesExcludingST = netValue.toFixed(2);
-
-            // let salesTaxApplicable = 0;
-
-            // const desc = (
-            //     row.rateOptions?.find(
-            //         (opt) =>
-            //             String(opt.ratE_VALUE ?? opt.ratE_ID) === String(row.rate)
-            //     )?.ratE_DESC || row.rateDesc || ""
-            // )
-            //     .toLowerCase()
-            //     .trim();
-
-            // if (!desc.includes("except") && !desc.includes("dtre")) {
-            //     const percentMatch = desc.match(/(\d+(\.\d+)?)\s*%/);
-            //     if (percentMatch) {
-            //         salesTaxApplicable +=
-            //             netValue * (parseFloat(percentMatch[1]) / 100);
-            //     }
-
-            //     const perUnitMatch = desc.match(/rs\.?\s*(\d+)\s*\/\s*(kg|mt|sqy)/);
-            //     if (perUnitMatch) {
-            //         salesTaxApplicable += quantity * n(perUnitMatch[1]);
-            //     }
-
-            //     const alongWithMatch = desc.match(
-            //         /rupees\s*(\d+)\s*per\s*kilogram/
-            //     );
-            //     if (alongWithMatch) {
-            //         salesTaxApplicable += quantity * n(alongWithMatch[1]);
-            //     }
-
-            //     const fixedRsMatch = desc.match(/^rs\.?\s*(\d+)$/);
-            //     if (fixedRsMatch) {
-            //         salesTaxApplicable += n(fixedRsMatch[1]);
-            //     }
-
-            //     const perBillMatch = desc.match(/(\d+)\s*\/\s*bill/);
-            //     if (perBillMatch) {
-            //         salesTaxApplicable += n(perBillMatch[1]);
-            //     }
-            // }
-            // row.salesTaxApplicable = salesTaxApplicable.toFixed(2);
-            // const grandTotal =
-            //     netValue +
-            //     n(row.salesTaxApplicable) +
-            //     n(row.salesTaxWithheldAtSource) +
-            //     n(row.extraTax) +
-            //     n(row.furtherTax) +
-            //     n(row.fedPayable);
-
-            // // 🔴 THIS IS THE IMPORTANT LINE
-            // row.totalValues = grandTotal.toFixed(2);
-            // newRows[index] = row;
-            // const totalExclTax = newRows.reduce((sum, r) => sum + Number(r.valueSalesExcludingST || 0), 0);
-            // const totalTax = newRows.reduce((sum, r) => sum + Number(r.salesTaxApplicable || 0), 0);
-            // const totalInclTax = totalExclTax + totalTax;
-
-            // invoiceForm.exclTax = totalExclTax.toFixed(2);
-            // invoiceForm.tax = totalTax.toFixed(2);
-            // invoiceForm.inclTax = totalInclTax.toFixed(2);
-            //console.log(`Invoice totals: ExclTax=${invoiceForm.exclTax}, Tax=${invoiceForm.tax}, InclTax=${invoiceForm.inclTax}`);
             const n = (v) => (isNaN(Number(v)) ? 0 : Number(v));
 
             const price = n(row.singleUnitPrice);
@@ -2796,30 +2842,26 @@ ${fbrInvoiceNo ? `
             const discount = n(row.discount);
             const fnvrp = n(row.fixedNotifiedValueOrRetailPrice);
 
-            // Determine if we are in the Retail Price/Fixed Value scenario
-            console.log(invoiceForm.scenarioCode);
-            const isRetailScenario = invoiceForm.scenarioCode === "SN008" || invoiceForm.scenarioCode === "SN027";
-            console.log(isRetailScenario);
-            /**
-             * 1. Calculate Value Sales Excluding ST
-             * Image 1 & 2: (single unit x qty) - disc
-             * Note: Even in scenario 008/027, the value of sales excluding tax 
-             * uses the actual selling price (single unit price).
-             */
+
+            // console.log(invoiceForm.scenarioCode);
+            // const isRetailScenario = invoiceForm.scenarioCode === "SN008" || invoiceForm.scenarioCode === "SN027";
+            // console.log("handle input invoice scenario", invoiceForm.scenarioCode);
+            // console.log("handle input row scenario", row.scenarioCode);
+
+            // const isRetailScenario = row.scenarioCode === "SN008" || row.scenarioCode === "SN027" || invoiceForm.scenarioCode === "SN008" || invoiceForm.scenarioCode === "SN027";
+            const currentScenario = row.scenarioCode || invoiceForm.scenarioCode;
+            const isRetailScenario = currentScenario === "SN008" || currentScenario === "SN027";
+            // console.log(isRetailScenario);
+
             const valueExclTax = (price * quantity) - discount;
             row.valueSalesExcludingST = Math.max(0, valueExclTax).toFixed(2);
 
-            /**
-             * 2. Calculate Sales Tax Applicable
-             * Image 1 (All other scenarios): valueSalesExcludingST * tax rate
-             * Image 2 (008, 027): (Retail Price x Qty) * tax rate
-             */
             let taxBaseValue;
             if (isRetailScenario) {
-                // For 008/027, tax is calculated on Retail Price, ignoring discount
-                taxBaseValue = fnvrp * quantity;
+
+                // taxBaseValue = fnvrp * quantity;
+                taxBaseValue = fnvrp;
             } else {
-                // For all other scenarios, tax is calculated on the net discounted value
                 taxBaseValue = n(row.valueSalesExcludingST);
             }
 
@@ -2833,12 +2875,10 @@ ${fbrInvoiceNo ? `
             if (!desc.includes("except") && !desc.includes("dtre")) {
                 const percentMatch = desc.match(/(\d+(\.\d+)?)\s*%/);
                 if (percentMatch) {
-                    // Apply the rate to the correctly identified taxBaseValue
                     salesTaxApplicable += taxBaseValue * (parseFloat(percentMatch[1]) / 100);
                 }
-
-                // Fixed rate logic (per KG/Unit) remains based on quantity
-                const perUnitMatch = desc.match(/rs\.?\s*(\d+)\s*\/\s*(kg|mt|sqy)/);
+                //const perUnitMatch = desc.match(/rs\.?\s*(\d+)\s*\/\s*(kg|mt|sqy)/);
+                const perUnitMatch = desc.match(/(?:rs\.?\s*)?(\d+)\s*\/\s*(kg|mt|sqy)/i);
                 if (perUnitMatch) {
                     salesTaxApplicable += quantity * n(perUnitMatch[1]);
                 }
@@ -2850,15 +2890,16 @@ ${fbrInvoiceNo ? `
 
                 const fixedRsMatch = desc.match(/^rs\.?\s*(\d+)$/);
                 if (fixedRsMatch) {
-                    salesTaxApplicable += n(fixedRsMatch[1]);
+                    salesTaxApplicable += quantity * n(fixedRsMatch[1]);
+                }
+                const perBillMatch = desc.match(/(\d+)\s*\/\s*bill/);
+                if (perBillMatch) {
+                    salesTaxApplicable += n(perBillMatch[1]);
                 }
             }
             row.salesTaxApplicable = salesTaxApplicable.toFixed(2);
-
-            /**
-             * 3. Total Values Calculation
-             * Image 1 & 2: valueSalesExclST + Sales Tax + Sales Tax Withheld + Extra Tax + Further Tax + FED
-             */
+            //  console.log("sale Tax", row.salesTaxApplicable);
+            //  console.log("n(sale tax applicalbe)", n(row.salesTaxApplicable));
             const grandTotal =
                 n(row.valueSalesExcludingST) +
                 n(row.salesTaxApplicable) +
@@ -2869,7 +2910,6 @@ ${fbrInvoiceNo ? `
 
             row.totalValues = grandTotal.toFixed(2);
 
-            // Update global forms
             newRows[index] = row;
             const totalExclTax = newRows.reduce((sum, r) => sum + Number(r.valueSalesExcludingST || 0), 0);
             const totalTax = newRows.reduce((sum, r) => sum + Number(r.salesTaxApplicable || 0), 0);
@@ -2879,7 +2919,6 @@ ${fbrInvoiceNo ? `
             invoiceForm.tax = totalTax.toFixed(2);
             invoiceForm.inclTax = totalInclTax.toFixed(2);
 
-            // Schedule dependent fetches using the updated row to avoid race conditions
             setTimeout(() => {
                 if (name === "TransactionType" || name === "TransactionTypeId") {
                     fetchSalesTaxRate(index, undefined, row);
@@ -2887,9 +2926,7 @@ ${fbrInvoiceNo ? `
                 if (name === "rate" || name === "rateId") {
                     fetchSroScheduleOptions(index, row, undefined, invoiceForm.sellerProvinceId ?? invoiceForm.sellerProvince ?? undefined);
                 }
-                // When SRO schedule is selected by id or value, fetch item options
                 if (name === 'sroScheduleNo' || name === 'sroScheduleId') {
-                    // Resolve id
                     const sroId = row.sroScheduleId || Number(row.sroScheduleNo || 0);
                     if (sroId) {
                         // clear previous item selection then fetch items
@@ -2920,50 +2957,31 @@ ${fbrInvoiceNo ? `
         setRows(newRows);
     };
 
-    const addRow = () => setRows(prev => [...prev, { ...emptyRow, rowId: genRowId() }]);
+    const addRow = () => {
+        const newRow = { ...emptyRow, rowId: genRowId() };
+        if (invoiceForm.scenarioCode) {
+            const mapping = scenarioCodeToTransactionType.find(m =>
+                String(m.scenario_code).trim().toUpperCase() === String(invoiceForm.scenarioCode).trim().toUpperCase()
+            );
+            if (mapping) {
+                const targetDesc = mapping.transaction_desc;
+                const targetId = transTypeList.find(t => t.transactioN_DESC === targetDesc)?.transactioN_TYPE_ID;
+                newRow.TransactionType = targetDesc;
+                newRow.TransactionTypeId = targetId || 0;
+            }
+        }
+        const newIndex = rows.length;
+        setRows(prev => [...prev, newRow]);
+        // Trigger fetch for the new row
+        setTimeout(() => fetchSalesTaxRate(newIndex, undefined, newRow), 0);
+    };
     const removeRow = (index) => setRows(rows.filter((_, i) => i !== index));
 
 
     // const lastMonthDate = new Date();
     // lastMonthDate.setDate(lastMonthDate.getDate() - 30);
     // const minDate = lastMonthDate.toISOString().split("T")[0];
-    let today;
-    let minDate;
-    function getMinDate() {
-        today = new Date().toISOString().split("T")[0];
-        // today = new Date().toLocaleDateString('en-CA', {
-        //     timeZone: 'Asia/Karachi'
-        // });
 
-        // Filter invoices with success status
-        const successInvoices = invoices.filter(inv => inv.status === "Success");
-
-        if (successInvoices.length > 0) {
-            // console.log("success invocies ", successInvoices.length)
-            // Get the **last invoice** by date
-            const lastInvoice = successInvoices.reduce((latest, inv) => {
-                const invDate = new Date(inv.invoice_date);
-                return invDate > new Date(latest.invoice_date) ? inv : latest;
-            }, successInvoices[0]);
-
-            const d = new Date(lastInvoice.invoice_date);
-
-            // Format in local YYYY-MM-DD
-            const year = d.getFullYear();
-            const month = String(d.getMonth() + 1).padStart(2, "0");
-            const day = String(d.getDate()).padStart(2, "0");
-
-            minDate = `${year}-${month}-${day}`;
-            //  console.log("minDate", minDate);
-        } else {
-            // const lastMonthDate = new Date();
-            // lastMonthDate.setDate(lastMonthDate.getDate() - 30);
-            // minDate = lastMonthDate.toISOString().split("T")[0];
-            minDate = "";
-            // console.log("else case minDate", minDate);
-        }
-
-    }
     getMinDate();
     // useEffect(() => {
     //     console.log("min date from use Effect");
@@ -3003,10 +3021,88 @@ ${fbrInvoiceNo ? `
         return `${year}-${month}-${day}`;
     };
 
+    const validateInvoiceDirectly = async (inv) => {
+        setProcessingInvoiceId(inv.id);
+        try {
+            const userId = sessionStorage.getItem("userId");
 
+            // Ensure items are parsed from string to Array to match form behavior
+            let itemsArray = [];
+            try {
+                itemsArray = typeof inv.items === 'string' ? JSON.parse(inv.items) : (inv.items || []);
+            } catch (e) {
+                console.error("Item parsing failed", e);
+            }
+
+            // Exact structure of invoiceToSubmit as per your reference
+            const invoiceToSubmit = {
+                userId: Number(userId),
+                invoiceNo: inv.invoice_no,
+                date: formatDateForInput(inv.invoice_date),
+                customer: inv.customer_name,
+                customerId: inv.customer_id,
+                buyerProvince: inv.buyerProvince,
+                sellerProvince: inv.sellerProvince || sessionStorage.getItem("sellerProvince") || "",
+                sellerProvinceId: Number(inv.sellerProvinceId) || Number(sessionStorage.getItem("sellerProvinceId") || 0),
+                sellerBusinessName: sessionStorage.getItem("sellerBusinessName") || "",
+                sellerNTNCNIC: sessionStorage.getItem("sellerNTNCNIC") || "",
+                sellerAddress: sessionStorage.getItem("sellerAddress") || "",
+                scenarioCode: inv.scenario_code,
+                scenarioCodeId: inv.scenario_code_id,
+                saleType: inv.saleType,
+                fbrInvoiceRefNo: inv.fbrInvoiceRefNo,
+                buyerType: inv.buyerType,
+                items: itemsArray.map((row) => ({
+                    hsCode: row.hsCode,
+                    description: row.description,
+                    singleUnitPrice: row.singleUnitPrice,
+                    qty: row.qty,
+                    rateId: Number(row.rateId) || 0,
+                    rate: (row.rate === undefined || row.rate === null) ? '' : String(row.rate),
+                    rateDesc: row.rateDesc,
+                    unit: row.unit,
+                    totalValues: row.totalValues,
+                    valueSalesExcludingST: row.valueSalesExcludingST,
+                    fixedNotifiedValueOrRetailPrice: row.fixedNotifiedValueOrRetailPrice,
+                    salesTaxApplicable: row.salesTaxApplicable,
+                    salesTaxWithheldAtSource: row.salesTaxWithheldAtSource,
+                    extraTax: row.extraTax,
+                    furtherTax: row.furtherTax,
+                    sroScheduleNo: row.sroScheduleNo,
+                    sroScheduleId: Number(row.sroScheduleId) || 0,
+                    sroScheduleNoId: Number(row.sroScheduleNoId ?? row.sroScheduleId) || 0,
+                    fedPayable: row.fedPayable,
+                    discount: row.discount,
+                    TransactionTypeId: Number(row.TransactionTypeId) || 0,
+                    TransactionType: row.TransactionType,
+                    sroItemSerialNo: row.sroItemSerialNo,
+                    sroItemId: Number(row.sroItemId) || 0,
+                })),
+            };
+
+            // Exact body structure and order
+            const res = await fetch('/api/invoices-crud', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', ...getFbrHeaders() },
+                body: JSON.stringify({
+                    invoiceId: inv.id,    // Equivalent to editingInvoiceId
+                    toValidate: true,      // Equivalent to forceValidate
+                    ...invoiceToSubmit,   // Spread the object
+                }),
+            });
+
+            const data = await res.json();
+            // alert(`${data.message}`);
+            fetchInvoices();
+        } catch (err) {
+            console.warn("Direct validation error:", err);
+        } finally {
+            setProcessingInvoiceId(null);
+        }
+    };
 
     return (
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-8xl mx-auto">
             <div className="flex justify-between items-center mb-8">
                 <h1 className="text-2xl md:text-4xl font-bold">Invoice Table</h1>
 
@@ -3027,7 +3123,7 @@ ${fbrInvoiceNo ? `
                                 buyerProvince: '',
                                 sellerProvince: sessionStorage.getItem("sellerProvince") || '',
                                 sellerProvinceId: Number(sessionStorage.getItem("sellerProvinceId") || 0),
-                                scenarioCode: '',
+                                scenarioCode: null,
                                 scenarioCodeId: 0,
                                 saleType: '',
                                 registrationNo: '',
@@ -3036,6 +3132,7 @@ ${fbrInvoiceNo ? `
                             setRows([{ ...emptyRow, rowId: genRowId() }]);
                             setCustomerSearch('');
                             setScenarioSearch('');
+                            setHasChanged(false);
                         }}
                         className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg"
                     >
@@ -3059,7 +3156,7 @@ ${fbrInvoiceNo ? `
                             <div className="flex justify-between items-center mb-6">
                                 <h2 className="text-2xl font-bold">{isEditMode ? (isReadOnly ? 'View Invoice' : 'Edit Invoice') : 'Add Invoice'}</h2>
                                 <div className="flex gap-4 items-center">
-                                    {!isReadOnly && (
+                                    {/* {(!isReadOnly && hasChanged) && (
                                         <button
                                             type="submit"
                                             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-semibold flex items-center gap-2"
@@ -3067,6 +3164,81 @@ ${fbrInvoiceNo ? `
                                             <DocumentArrowDownIcon className="h-6 w-6" />
                                             Save
                                         </button>
+                                    )} */}
+                                    {!isReadOnly && (
+                                        <>
+                                            {/* Case 1: User made changes -> Show Save (Blue) */}
+                                            {hasChanged ? (
+                                                <button
+                                                    type="submit"
+                                                    disabled={isSubmitting}
+                                                    className={`px-4 py-2 rounded-md font-semibold flex items-center gap-2 transition-all 
+                                                                 ${isSubmitting
+                                                            ? 'bg-gray-400 cursor-not-allowed text-white'
+                                                            : 'bg-blue-600 hover:bg-blue-700 text-white active:scale-95 shadow-sm'
+                                                        }`}
+                                                >
+                                                    {isSubmitting ? (
+                                                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                        </svg>
+                                                    ) : (
+                                                        <DocumentArrowDownIcon className="h-6 w-6" />
+                                                    )}
+                                                    {isSubmitting ? 'Saving...' : 'Save'}
+                                                </button>
+                                            ) : (
+
+                                                //   (invoiceForm.status === 'Pending' || invoiceForm.status === 'Failed') && (
+                                                (invoiceForm.status != 'Validated') && isEditMode && (
+                                                    <button
+                                                        type="button"
+                                                        disabled={isSubmitting} // Disable during request
+                                                        onClick={() => handleInvoiceSubmit(null, true)}
+                                                        className={`px-4 py-2 rounded-md font-semibold flex items-center gap-2 transition-all 
+                                                                     ${isSubmitting
+                                                                ? 'bg-gray-400 cursor-not-allowed text-white'
+                                                                : 'bg-green-600 hover:bg-green-700 text-white active:scale-95'
+                                                            }`}
+                                                    >
+                                                        {isSubmitting ? (
+                                                            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                            </svg>
+                                                        ) : (
+                                                            <DocumentArrowDownIcon className="h-6 w-6" />
+                                                        )}
+                                                        {isSubmitting ? 'Validating...' : 'Validate'}
+                                                    </button>
+                                                )
+                                            )}
+                                            {invoiceForm.status === 'Failed' && (
+                                                <button
+                                                    type="button"
+                                                    disabled={isLoadingError} // Prevent multiple clicks
+                                                    onClick={() => handleErrorClick(editingInvoiceId)}
+                                                    className={`px-4 py-2 rounded-md font-semibold flex items-center gap-2 transition-all shadow-sm
+            ${isLoadingError
+                                                            ? 'bg-gray-400 cursor-not-allowed text-white'
+                                                            : 'bg-red-600 hover:bg-red-700 text-white active:scale-95'
+                                                        }`}
+                                                >
+                                                    {isLoadingError ? (
+                                                        // Simple Spinner SVG
+                                                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                        </svg>
+                                                    ) : (
+                                                        <DocumentArrowDownIcon className="h-6 w-6" />
+                                                    )}
+
+                                                    {isLoadingError ? 'Loading...' : 'View Error Details'}
+                                                </button>
+                                            )}
+                                        </>
                                     )}
 
                                     {isReadOnly && (
@@ -3099,6 +3271,9 @@ ${fbrInvoiceNo ? `
                                             setEditingInvoiceId(null);
                                             setCustomerSearch('');
                                             setScenarioSearch('');
+                                            setHasChanged(false);
+                                            fetchInvoices();
+                                            // setInvoiceForm(null);
                                         }}
                                         className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
                                     >
@@ -3122,12 +3297,14 @@ ${fbrInvoiceNo ? `
                                             if (canEdit) {
                                                 const numericValue = e.target.value.replace(/\D/g, '');
                                                 setInvoiceForm((prev) => ({ ...prev, invoiceNo: numericValue }));
+                                                setHasChanged(true);
                                             }
                                         }}
                                         onBlur={() => {
                                             const canEdit = !isEditMode && Number(latestInvoice) === 1;
                                             if (canEdit && (!invoiceForm.invoiceNo || invoiceForm.invoiceNo === '')) {
                                                 setInvoiceForm((prev) => ({ ...prev, invoiceNo: '1' }));
+                                                setHasChanged(true);
                                             }
                                         }}
                                         className="w-full border rounded-md px-3 py-2"
@@ -3153,7 +3330,11 @@ ${fbrInvoiceNo ? `
                                         type="date"
                                         name="date"
                                         value={invoiceForm.date}
-                                        onChange={handleFormChange}
+                                        //onChange={handleFormChange}
+                                        onChange={(e) => {
+                                            handleFormChange(e);
+                                            setHasChanged(true);
+                                        }}
                                         className="w-full border rounded-md px-3 py-2"
                                         min={minDate}
                                         max={today}
@@ -3172,7 +3353,7 @@ ${fbrInvoiceNo ? `
                                     <input
                                         type="text"
                                         value={customerSearch}
-                                        onChange={(e) => setCustomerSearch(e.target.value)}
+                                        onChange={(e) => { setCustomerSearch(e.target.value); setHasChanged(true); }}
                                         placeholder="Search customer..."
                                         className="w-full border rounded-md px-3 py-2"
                                         readOnly={isReadOnly}
@@ -3206,6 +3387,7 @@ ${fbrInvoiceNo ? `
                                                                 // registrationNo: regNoToUse,
                                                             }));
                                                             setCustomerSearch(displayValue);
+                                                            setHasChanged(true);
                                                             // if (regNoToUse) {
                                                             //     setTimeout(async() => {
                                                             //         await handleRegistrationCheck(regNoToUse);
@@ -3275,7 +3457,11 @@ ${fbrInvoiceNo ? `
                                         <select
                                             name="buyerProvince"
                                             value={invoiceForm.buyerProvince || ''}
-                                            onChange={handleFormChange}
+                                            // onChange={()=>handleFormChange}
+                                            onChange={(e) => {
+                                                handleFormChange(e);
+                                                setHasChanged(true);
+                                            }}
                                             className="w-full border border-[#B0B0B0] rounded-md p-2 bg-white text-[#4E4E4E] focus:border-[#5AB3E8] focus:ring-1 focus:ring-[#5AB3E8] transition-all duration-300 outline-none"
                                             required
                                             disabled={loading}
@@ -3360,7 +3546,11 @@ ${fbrInvoiceNo ? `
                                         <select
                                             name="sellerProvinceId"
                                             value={invoiceForm.sellerProvinceId || ''}
-                                            onChange={handleFormChange}
+                                            // onChange={handleFormChange}
+                                            onChange={(e) => {
+                                                handleFormChange(e);
+                                                setHasChanged(true);
+                                            }}
                                             className="w-full border border-[#B0B0B0] rounded-md p-2 bg-white text-[#4E4E4E] focus:border-[#5AB3E8] focus:ring-1 focus:ring-[#5AB3E8] transition-all duration-300 outline-none"
                                             required
                                             disabled={loading}
@@ -3404,7 +3594,7 @@ ${fbrInvoiceNo ? `
                                     <input
                                         type="text"
                                         value={scenarioSearch}
-                                        onChange={(e) => setScenarioSearch(e.target.value)}
+                                        onChange={(e) => { setScenarioSearch(e.target.value); setHasChanged(true); }}
                                         placeholder="Select scenario code..."
                                         className="w-full border rounded-md px-3 py-2"
                                         readOnly={isReadOnly}
@@ -3422,14 +3612,62 @@ ${fbrInvoiceNo ? `
                                                 <div
                                                     key={s.id}
                                                     className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                                                    // onMouseDown={() => {
+                                                    //     const value = `${s.code} - ${s.description}`;
+                                                    //     setInvoiceForm((prev) => ({
+                                                    //         ...prev,
+                                                    //         scenarioCodeId: s.id,
+                                                    //         scenarioCode: s.code,
+                                                    //     }));
+                                                    //     setScenarioSearch(value);
+                                                    // }}
                                                     onMouseDown={() => {
-                                                        const value = `${s.code} - ${s.description}`;
+                                                        // 1. Capture the values from 's' immediately so they are in scope
+                                                        const selectedCode = s.code;
+                                                        const selectedId = s.id;
+                                                        const displayValue = `${s.code} - ${s.description}`;
+
+                                                        //   2. Find the mapped transaction description from your state
+                                                        const dataArray = Array.isArray(scenarioCodeToTransactionType)
+                                                            ? scenarioCodeToTransactionType
+                                                            : scenarioCodeToTransactionType.scenarioCodeToTransactionType; // Access the nested key
+
+                                                        console.log("selected scenario code:", selectedCode);
+                                                        console.log("Actual Data Array:", dataArray);
+
+                                                        const mapping = scenarioCodeToTransactionType.find(m =>
+                                                            String(m.scenario_code).trim().toUpperCase() === String(selectedCode).trim().toUpperCase()
+                                                        );
+
+                                                        console.log("Selected scenario mapping:", mapping);
+                                                        // 3. Update the main form (Your existing structure)
                                                         setInvoiceForm((prev) => ({
                                                             ...prev,
-                                                            scenarioCodeId: s.id,
-                                                            scenarioCode: s.code,
+                                                            scenarioCodeId: selectedId,
+                                                            scenarioCode: selectedCode,
                                                         }));
-                                                        setScenarioSearch(value);
+                                                        setScenarioSearch(displayValue);
+                                                        setHasChanged(true);
+
+                                                        // 4. Auto-update all rows if a mapping is found
+                                                        if (mapping) {
+                                                            const targetDesc = mapping.transaction_desc;
+                                                            // Find the ID from your existing transTypeList
+                                                            const targetId = transTypeList.find(t => t.transactioN_DESC === targetDesc)?.transactioN_TYPE_ID;
+
+                                                            setRows((prevRows) => {
+                                                                const updatedRows = prevRows.map((row) => ({
+                                                                    ...row,
+                                                                    TransactionType: targetDesc,
+                                                                    TransactionTypeId: targetId || row.TransactionTypeId,
+                                                                }));
+                                                                // Trigger fetch for each row with the updated row data
+                                                                setTimeout(() => {
+                                                                    updatedRows.forEach((row, idx) => fetchSalesTaxRate(idx, undefined, row));
+                                                                }, 0);
+                                                                return updatedRows;
+                                                            });
+                                                        }
                                                     }}
                                                 >
                                                     {s.code} - {s.description}
@@ -3453,7 +3691,7 @@ ${fbrInvoiceNo ? `
                                             type="text"
                                             name="saleType"
                                             value={invoiceForm.saleType || ""}
-                                            onChange={handleFormChange}
+                                            onChange={(e) => { handleFormChange(e); setHasChanged(true); }}
                                             placeholder="Select or type sale type..."
                                             className={`
                                                         w-full border rounded px-3 py-2 text-sm
@@ -3498,6 +3736,7 @@ ${fbrInvoiceNo ? `
                                                                     ...prev,
                                                                     saleType: item.docDescription,
                                                                 }));
+                                                                setHasChanged(true);
                                                                 // Optional: blur to close dropdown immediately after pick
                                                                 // e.currentTarget.closest('input')?.blur();
                                                             }}
@@ -3569,7 +3808,7 @@ ${fbrInvoiceNo ? `
                                     <select
                                         name="buyerType"
                                         value={invoiceForm.buyerType || ''}
-                                        onChange={handleFormChange}
+                                        onChange={(e) => { handleFormChange(e); setHasChanged(true); }}
                                         className="w-full border rounded-md px-3 py-2"
                                         required
                                         disabled={isReadOnly}
@@ -3579,18 +3818,20 @@ ${fbrInvoiceNo ? `
                                         <option value="Unregistered">Unregistered</option>
                                     </select>
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">FBR Invoice Ref No</label>
-                                    <input
-                                        type="text"
-                                        name="fbrInvoiceRefNo"
-                                        value={invoiceForm.fbrInvoiceRefNo || ''}
-                                        onChange={handleFormChange}
-                                        className="w-full border rounded-md px-3 py-2"
-                                        placeholder="Enter FBR Invoice Ref No"
-                                        readOnly={isReadOnly}
-                                    />
-                                </div>
+                                {invoiceForm.saleType === "Debit Note" && (
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">FBR Invoice Ref No</label>
+                                        <input
+                                            type="text"
+                                            name="fbrInvoiceRefNo"
+                                            value={invoiceForm.fbrInvoiceRefNo || ''}
+                                            onChange={handleFormChange}
+                                            className="w-full border rounded-md px-3 py-2"
+                                            placeholder="Enter FBR Invoice Ref No"
+                                            readOnly={isReadOnly}
+                                        />
+                                    </div>
+                                )}
 
                             </div>
                             {/* <div className="bg-white rounded-xl shadow overflow-x-auto custom-scroll mt-6">
@@ -3652,7 +3893,7 @@ ${fbrInvoiceNo ? `
                                             <th className="px-4 py-3 font-semibold">Unit</th>
                                             <th className="px-4 py-3 font-semibold">Total Values</th>
                                             <th className="px-4 py-3 font-semibold">Value Sales Excl. ST</th>
-                                            <th className="px-4 py-3 font-semibold">Fixed Notified / Retail Price</th>
+                                            <th className="px-4 py-3 font-semibold">Fixed Notified / Retail Price * Qty</th>
                                             <th className="px-4 py-3 font-semibold">Sales Tax Applicable</th>
                                             <th className="px-4 py-3 font-semibold">Sales Tax Withheld</th>
                                             <th className="px-4 py-3 font-semibold">Extra Tax</th>
@@ -3679,7 +3920,7 @@ ${fbrInvoiceNo ? `
                                                     <input
                                                         type="text"
                                                         value={row.hsCode}
-                                                        onChange={(e) => handleInputChange(index, "hsCode", e.target.value)}
+                                                        onChange={(e) => { handleInputChange(index, "hsCode", e.target.value); setHasChanged(true); }}
                                                         placeholder="Search HS Code..."
                                                         className="w-full border rounded px-2 py-1"
                                                         onFocus={(e) => {
@@ -3706,7 +3947,7 @@ ${fbrInvoiceNo ? `
                                                                 <div
                                                                     key={h.hS_CODE}
                                                                     className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
-                                                                    onMouseDown={() => handleInputChange(index, "hsCode", h.hS_CODE)}
+                                                                    onMouseDown={() => { handleInputChange(index, "hsCode", h.hS_CODE); setHasChanged(true); }}
                                                                 >
                                                                     {h.hS_CODE} - {h.description}
                                                                 </div>
@@ -3718,8 +3959,7 @@ ${fbrInvoiceNo ? `
                                                     <input
                                                         name="description"
                                                         value={row.description}
-                                                        onChange={(e) =>
-                                                            handleInputChange(index, "description", e.target.value)
+                                                        onChange={(e) => { handleInputChange(index, "description", e.target.value); setHasChanged(true); }
                                                         }
                                                         className="w-full border rounded px-2 py-1"
                                                         readOnly={isReadOnly}
@@ -3749,6 +3989,7 @@ ${fbrInvoiceNo ? `
                                                                 .replace(/(\..*?)\./g, '$1');
 
                                                             handleInputChange(index, "singleUnitPrice", cleaned);
+                                                            setHasChanged(true);
                                                         }}
                                                         onBlur={() => {
                                                             if (isReadOnly) return;
@@ -3757,14 +3998,17 @@ ${fbrInvoiceNo ? `
 
                                                             if (current === "") {
                                                                 handleInputChange(index, "singleUnitPrice", "1");
+                                                                setHasChanged(true);
                                                                 return;
                                                             }
 
                                                             const num = Number(current);
                                                             if (!isNaN(num) && num >= 0) {
                                                                 handleInputChange(index, "singleUnitPrice", num.toString());
+                                                                setHasChanged(true);
                                                             } else {
                                                                 handleInputChange(index, "singleUnitPrice", "1");
+                                                                setHasChanged(true);
                                                             }
                                                         }}
                                                         className="w-full border rounded px-2 py-1"
@@ -3798,6 +4042,7 @@ ${fbrInvoiceNo ? `
                                                                 .replace(/(\..*?)\./g, '$1');
 
                                                             handleInputChange(index, "qty", cleaned);
+                                                            setHasChanged(true);
                                                         }}
                                                         onBlur={() => {
                                                             if (isReadOnly) return;
@@ -3806,14 +4051,17 @@ ${fbrInvoiceNo ? `
 
                                                             if (current === "") {
                                                                 handleInputChange(index, "qty", "1");
+                                                                setHasChanged(true);
                                                                 return;
                                                             }
 
                                                             const num = Number(current);
                                                             if (!isNaN(num) && num >= 0) {
                                                                 handleInputChange(index, "qty", num.toString());
+                                                                setHasChanged(true);
                                                             } else {
                                                                 handleInputChange(index, "qty", "1");
+                                                                setHasChanged(true);
                                                             }
                                                         }}
                                                         className="w-full border rounded px-2 py-1"
@@ -3829,12 +4077,12 @@ ${fbrInvoiceNo ? `
                                                         type="text"
                                                         name="TransactionType"
                                                         value={row.TransactionType}
-                                                        onChange={(e) => handleInputChange(index, "TransactionType", e.target.value)}
+                                                        onChange={(e) => { handleInputChange(index, "TransactionType", e.target.value); setHasChanged(true); }}
                                                         placeholder="Select Transaction Type..."
                                                         className="w-full border rounded px-2 py-1"
-                                                        readOnly={isReadOnly}
+                                                        readOnly
                                                     />
-                                                    <div className="absolute top-full left-0 right-0 bg-white border rounded-md max-h-40 overflow-y-auto z-50 shadow-lg hidden group-focus-within:block">
+                                                    {/* <div className="absolute top-full left-0 right-0 bg-white border rounded-md max-h-40 overflow-y-auto z-50 shadow-lg hidden group-focus-within:block">
                                                         {transTypeList
                                                             .filter((u) =>
                                                                 u.transactioN_DESC.toLowerCase().includes((row.transType || "").toLowerCase())
@@ -3848,7 +4096,7 @@ ${fbrInvoiceNo ? `
                                                                     {u.transactioN_DESC}
                                                                 </div>
                                                             ))}
-                                                    </div>
+                                                    </div> */}
                                                 </td>
 
 
@@ -3857,7 +4105,7 @@ ${fbrInvoiceNo ? `
                                                     {row.rateOptions && row.rateOptions.length > 0 ? (
                                                         <select
                                                             value={row.rateId ?? ""}
-                                                            onChange={(e) => handleInputChange(index, "rateId", e.target.value)}
+                                                            onChange={(e) => { handleInputChange(index, "rateId", e.target.value); setHasChanged(true); }}
                                                             className="w-full border rounded px-2 py-1"
                                                             disabled={isReadOnly}
                                                         >
@@ -3873,7 +4121,7 @@ ${fbrInvoiceNo ? `
                                                             type="text"
                                                             name="rate"
                                                             value={row.rate ?? ""}
-                                                            onChange={(e) => handleInputChange(index, "rate", e.target.value)}
+                                                            onChange={(e) => { handleInputChange(index, "rate", e.target.value); setHasChanged(true); }}
                                                             className="w-full border rounded px-2 py-1"
                                                             readOnly
                                                         />
@@ -3893,7 +4141,7 @@ ${fbrInvoiceNo ? `
                                                         type="text"
                                                         name="unit"
                                                         value={row.unit}
-                                                        onChange={(e) => handleInputChange(index, "unit", e.target.value)}
+                                                        onChange={(e) => { handleInputChange(index, "unit", e.target.value); setHasChanged(true); }}
                                                         placeholder="Select UOM..."
                                                         className="w-full border rounded px-2 py-1"
                                                         readOnly={isReadOnly}
@@ -4097,6 +4345,7 @@ ${fbrInvoiceNo ? `
                                                                 .replace(/(\..*?)\./g, '$1');
 
                                                             handleInputChange(index, "fixedNotifiedValueOrRetailPrice", cleaned);
+                                                            setHasChanged(true);
                                                         }}
                                                         onBlur={() => {
                                                             if (isReadOnly) return;
@@ -4104,14 +4353,17 @@ ${fbrInvoiceNo ? `
                                                             let current = (row.fixedNotifiedValueOrRetailPrice ?? "").trim();
 
                                                             if (current === "") {
-                                                                handleInputChange(index, "fixedNotifiedValueOrRetailPrice", "1");
+                                                                handleInputChange(index, "fixedNotifiedValueOrRetailPrice", "0");
+                                                                setHasChanged(true);
                                                                 return;
                                                             }
                                                             const num = Number(current);
                                                             if (!isNaN(num) && num >= 0) {
                                                                 handleInputChange(index, "fixedNotifiedValueOrRetailPrice", num.toString());
+                                                                setHasChanged(true);
                                                             } else {
-                                                                handleInputChange(index, "fixedNotifiedValueOrRetailPrice", "1");
+                                                                handleInputChange(index, "fixedNotifiedValueOrRetailPrice", "0");
+                                                                setHasChanged(true);
                                                             }
                                                         }}
                                                         className="w-full border rounded px-2 py-1"
@@ -4229,6 +4481,7 @@ ${fbrInvoiceNo ? `
                                                                 .replace(/(\..*?)\./g, '$1');
 
                                                             handleInputChange(index, "salesTaxWithheldAtSource", cleaned);
+                                                            setHasChanged(true);
                                                         }}
                                                         onBlur={() => {
                                                             if (isReadOnly) return;
@@ -4237,14 +4490,17 @@ ${fbrInvoiceNo ? `
 
                                                             if (current === "") {
                                                                 handleInputChange(index, "salesTaxWithheldAtSource", "0");
+                                                                setHasChanged(true);
                                                                 return;
                                                             }
 
                                                             const num = Number(current);
                                                             if (!isNaN(num) && num >= 0) {
                                                                 handleInputChange(index, "salesTaxWithheldAtSource", num.toString());
+                                                                setHasChanged(true);
                                                             } else {
                                                                 handleInputChange(index, "salesTaxWithheldAtSource", "0");
+                                                                setHasChanged(true);
                                                             }
                                                         }}
                                                         className="w-full border rounded px-2 py-1"
@@ -4287,6 +4543,7 @@ ${fbrInvoiceNo ? `
                                                                 .replace(/(\..*?)\./g, '$1');
 
                                                             handleInputChange(index, "extraTax", cleaned);
+                                                            setHasChanged(true);
                                                         }}
                                                         onBlur={() => {
                                                             if (isReadOnly) return;
@@ -4295,14 +4552,17 @@ ${fbrInvoiceNo ? `
 
                                                             if (current === "") {
                                                                 handleInputChange(index, "extraTax", "0");
+                                                                setHasChanged(true);
                                                                 return;
                                                             }
 
                                                             const num = Number(current);
                                                             if (!isNaN(num) && num >= 0) {
                                                                 handleInputChange(index, "extraTax", num.toString());
+                                                                setHasChanged(true);
                                                             } else {
                                                                 handleInputChange(index, "extraTax", "0");
+                                                                setHasChanged(true);
                                                             }
                                                         }}
                                                         className="w-full border rounded px-2 py-1"
@@ -4346,6 +4606,7 @@ ${fbrInvoiceNo ? `
                                                                 .replace(/(\..*?)\./g, '$1');
 
                                                             handleInputChange(index, "furtherTax", cleaned);
+                                                            setHasChanged(true);
                                                         }}
                                                         onBlur={() => {
                                                             if (isReadOnly) return;
@@ -4354,6 +4615,7 @@ ${fbrInvoiceNo ? `
 
                                                             if (current === "") {
                                                                 handleInputChange(index, "furtherTax", "0");
+                                                                setHasChanged(true);
                                                                 return;
                                                             }
 
@@ -4362,8 +4624,10 @@ ${fbrInvoiceNo ? `
                                                             const num = Number(current);
                                                             if (!isNaN(num) && num >= 0) {
                                                                 handleInputChange(index, "furtherTax", num.toString());
+                                                                setHasChanged(true);
                                                             } else {
                                                                 handleInputChange(index, "furtherTax", "0");
+                                                                setHasChanged(true);
                                                             }
                                                         }}
                                                         className="w-full border rounded px-2 py-1"
@@ -4378,7 +4642,7 @@ ${fbrInvoiceNo ? `
                                                     {row.sroOptions && row.sroOptions.length > 0 ? (
                                                         <select
                                                             value={row.sroScheduleId ?? ""}
-                                                            onChange={(e) => handleInputChange(index, "sroScheduleId", e.target.value)}
+                                                            onChange={(e) => { handleInputChange(index, "sroScheduleId", e.target.value); setHasChanged(true); }}
                                                             className="w-full border rounded px-2 py-1"
                                                             disabled={isReadOnly}
                                                         >
@@ -4398,7 +4662,7 @@ ${fbrInvoiceNo ? `
                                                         <input
                                                             name="sroScheduleNo"
                                                             value={row.sroScheduleNo ?? "not found"}
-                                                            onChange={(e) => handleInputChange(index, "sroScheduleNo", e.target.value)}
+                                                            onChange={(e) => { handleInputChange(index, "sroScheduleNo", e.target.value); setHasChanged(true); }}
                                                             className="w-full border rounded px-2 py-1"
                                                             readOnly={isReadOnly}
                                                         />
@@ -4445,6 +4709,7 @@ ${fbrInvoiceNo ? `
                                                                 .replace(/(\..*?)\./g, '$1');
 
                                                             handleInputChange(index, "fedPayable", cleaned);
+                                                            setHasChanged(true);
                                                         }}
                                                         onBlur={() => {
                                                             if (isReadOnly) return;
@@ -4453,6 +4718,7 @@ ${fbrInvoiceNo ? `
 
                                                             if (current === "") {
                                                                 handleInputChange(index, "fedPayable", "0");
+                                                                setHasChanged(true);
                                                                 return;
                                                             }
 
@@ -4461,8 +4727,10 @@ ${fbrInvoiceNo ? `
                                                             const num = Number(current);
                                                             if (!isNaN(num) && num >= 0) {
                                                                 handleInputChange(index, "fedPayable", num.toString());
+                                                                setHasChanged(true);
                                                             } else {
                                                                 handleInputChange(index, "fedPayable", "0");
+                                                                setHasChanged(true);
                                                             }
                                                         }}
                                                         className="w-full border rounded px-2 py-1"
@@ -4506,6 +4774,7 @@ ${fbrInvoiceNo ? `
                                                                 .replace(/(\..*?)\./g, '$1');
 
                                                             handleInputChange(index, "discount", cleaned);
+                                                            setHasChanged(true);
                                                         }}
                                                         onBlur={() => {
                                                             if (isReadOnly) return;
@@ -4514,6 +4783,7 @@ ${fbrInvoiceNo ? `
 
                                                             if (current === "") {
                                                                 handleInputChange(index, "discount", "0");
+                                                                setHasChanged(true);
                                                                 return;
                                                             }
 
@@ -4522,8 +4792,10 @@ ${fbrInvoiceNo ? `
                                                             const num = Number(current);
                                                             if (!isNaN(num) && num >= 0) {
                                                                 handleInputChange(index, "discount", num.toString());
+                                                                setHasChanged(true);
                                                             } else {
                                                                 handleInputChange(index, "discount", "0");
+                                                                setHasChanged(true);
                                                             }
                                                         }}
                                                         className="w-full border rounded px-2 py-1"
@@ -4566,7 +4838,7 @@ ${fbrInvoiceNo ? `
                                                     {row.sroItemOptions && row.sroItemOptions.length > 0 ? (
                                                         <select
                                                             value={row.sroItemId ?? ''}
-                                                            onChange={(e) => handleInputChange(index, 'sroItemId', e.target.value)}
+                                                            onChange={(e) => { handleInputChange(index, 'sroItemId', e.target.value); setHasChanged(true); }}
                                                             className="w-full border rounded px-2 py-1"
                                                             disabled={isReadOnly}
                                                         >
@@ -4584,7 +4856,7 @@ ${fbrInvoiceNo ? `
                                                         <input
                                                             name="sroItemSerialNo"
                                                             value={row.sroItemSerialNo ?? ""}
-                                                            onChange={(e) => handleInputChange(index, "sroItemSerialNo", e.target.value)}
+                                                            onChange={(e) => { handleInputChange(index, "sroItemSerialNo", e.target.value); setHasChanged(true); }}
                                                             className="w-full border rounded px-2 py-1"
                                                             readOnly={isReadOnly}
                                                         />
@@ -4609,7 +4881,7 @@ ${fbrInvoiceNo ? `
                                                     <button
                                                         type="button"
                                                         className={`bg-red-500 text-white px-3 py-1 rounded ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                        onClick={() => { if (!isReadOnly) removeRow(index); }}
+                                                        onClick={() => { if (!isReadOnly) { removeRow(index); setHasChanged(true); } }}
                                                         disabled={isReadOnly}
                                                     >
                                                         Remove
@@ -4625,7 +4897,7 @@ ${fbrInvoiceNo ? `
                                 {/* Add Row Button */}
                                 <button
                                     type="button"
-                                    onClick={addRow}
+                                    onClick={() => { addRow(); setHasChanged(true); }}
                                     disabled={isReadOnly}
                                     className={`h-8 px-3 text-sm rounded bg-blue-600 text-white
       ${isReadOnly ? "opacity-50 cursor-not-allowed" : ""}
@@ -4680,8 +4952,10 @@ ${fbrInvoiceNo ? `
                                 // 'Total',
                                 'Status',
                                 'Action',
-                                'Post to FBR',
-                                'Delete'
+                                'Submit',
+                                'Delete',
+                                'Bill'
+
                             ].map(h => (
                                 <th key={h} className="px-4 py-3 text-center font-semibold whitespace-nowrap">
                                     {h}
@@ -4736,29 +5010,79 @@ ${fbrInvoiceNo ? `
                                         {inv.total || 0}
                                     </td> */}
                                     <td className="px-4 py-3 text-center">
-                                        {getStatusBadge(inv.status)}
+                                        {/* {getStatusBadge(inv.status)} */}
+                                        {processingInvoiceId === inv.id
+                                            ? getStatusBadge('Processing', inv.id)
+                                            : getStatusBadge(inv.status, inv.id)
+                                        }
                                     </td>
                                     <td className="px-4 py-3 text-center">
-                                        <button onClick={() => handleViewInvoice(inv)} className="text-blue-600 hover:underline text-sm">
-                                            View
-                                        </button>
-                                    </td>
-                                    <td className="px-4 py-3 text-center">
-                                        {/* Post to FBR - shown only for the first index when status is Pending or Failed */}
-                                        {(idx === 0 && (inv.status === 'Pending' || inv.status === 'Failed')) && (
-                                            <button
-                                                onClick={() => postInvoiceToFBR(inv.id)}
-                                                disabled={processingInvoiceId === inv.id}
-                                                className={`px-5 py-1 rounded-full text-xs font-semibold ${processingInvoiceId === inv.id ? 'bg-gray-400' : 'bg-indigo-600 hover:bg-indigo-700'} text-white`}
-                                            >
-                                                {processingInvoiceId === inv.id ? 'Posting...' : 'Post'}
+                                        {inv.status !== 'Processing' && (
+                                            <button onClick={() => handleViewInvoice(inv)} className="text-blue-600 hover:underline text-sm">
+                                                View
                                             </button>
                                         )}
                                     </td>
 
+                                    {/* Post to FBR - shown only for the first index when status is Pending or Failed */}
+                                    {/* {(idx === 0 && (inv.status === 'Pending' || inv.status === 'Failed' || inv.status === 'Validated')) && (
+                                            <button
+                                                //onClick={() => postInvoiceToFBR(inv.id)}
+                                                onClick={() => {
+                                                    if (inv.status === 'Validated') {
+                                                        postInvoiceToFBR(inv.id);
+                                                    } else {
+                                                        // Direct call to validate without opening form
+                                                        validateInvoiceDirectly(inv);
+                                                    }
+                                                }}
+                                                disabled={processingInvoiceId === inv.id}
+                                                className={`px-5 py-1 rounded-full text-xs font-semibold ${processingInvoiceId === inv.id ? 'bg-gray-400' : 'bg-indigo-600 hover:bg-indigo-700'} text-white`}
+                                            >
+                                                {processingInvoiceId === inv.id
+                                                    ? 'Processing'
+                                                    : inv.status === 'Validated' ? 'Post' : 'Validate'
+                                                }
+                                            </button>
+                                        )} */}
+                                    {/* Post to FBR / Validate Column */}
+                                    <td className="px-1 py-3 w-px whitespace-nowrap">
+                                        <div className="flex justify-center items-center">
+                                            {/* Post Button */}
+                                            {idx === 0 && inv.status === 'Validated' && (
+                                                <button
+                                                    onClick={() => postInvoiceToFBR(inv.id)}
+                                                    disabled={processingInvoiceId === inv.id}
+                                                    className={`px-3 py-1 rounded-full text-xs font-semibold text-white transition-all
+                    ${processingInvoiceId === inv.id
+                                                            ? 'bg-gray-400 cursor-not-allowed'
+                                                            : 'bg-emerald-600 hover:bg-emerald-700 active:scale-95'
+                                                        }`}
+                                                >
+                                                    {processingInvoiceId === inv.id ? 'Wait...' : 'Post to FBR'}
+                                                </button>
+                                            )}
+
+                                            {/* Validate Button */}
+                                            {(inv.status === 'Pending' || inv.status === 'Failed') && (
+                                                <button
+                                                    onClick={() => validateInvoiceDirectly(inv)}
+                                                    disabled={processingInvoiceId === inv.id}
+                                                    className={`px-3 py-1 rounded-full text-xs font-semibold text-white transition-all
+                    ${processingInvoiceId === inv.id
+                                                            ? 'bg-gray-400 cursor-not-allowed'
+                                                            : 'bg-slate-700 hover:bg-slate-800 active:scale-95'
+                                                        }`}
+                                                >
+                                                    {processingInvoiceId === inv.id ? 'Wait...' : 'Validate'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </td>
+
                                     <td className="px-1 py-3 text-center">
                                         {/* Remove - shown for Pending or Failed (not for Success) */}
-                                        {(inv.status === 'Pending' || inv.status === 'Failed') && (
+                                        {(inv.status === 'Pending' || inv.status === 'Failed' || inv.status === 'Validated') && (
                                             <button
                                                 onClick={() => deleteInvoice(inv.id)}
                                                 disabled={processingInvoiceId === inv.id}
@@ -4767,6 +5091,35 @@ ${fbrInvoiceNo ? `
                                                 {processingInvoiceId === inv.id ? 'Removing...' : 'Remove'}
                                             </button>
                                         )}
+                                    </td>
+
+                                    {/* <td className="px-1 py-3 text-center">
+
+                                        <button
+                                            onClick={() => printInvoice(inv)}
+                                            disabled={processingInvoiceId === inv.id}
+                                            className={`px-3 py-1 rounded-full text-xs font-semibold rounded text-white ${processingInvoiceId === inv.id ? 'bg-gray-400' : 'bg-red-600 hover:bg-red-700'}`}
+                                        >
+
+                                        </button>
+
+                                    </td> */}
+                                    <td className="px-1 py-3 text-center">
+                                        <button
+                                            onClick={() => printInvoice(inv)}
+                                            disabled={processingInvoiceId === inv.id}
+                                            className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-200 shadow-sm
+            ${processingInvoiceId === inv.id
+                                                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                                    : 'bg-emerald-600 hover:bg-emerald-700 text-white active:scale-95 hover:shadow-md'
+                                                }`}
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.618 0-1.139-.462-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247m10.5 0a48.536 48.536 0 0 0-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5Zm-3 0h.008v.008H15V10.5Z" />
+                                            </svg>
+
+                                            Print
+                                        </button>
                                     </td>
                                 </tr>
                             ))}
@@ -4794,6 +5147,82 @@ ${fbrInvoiceNo ? `
                     </button>
                 </div>
             </div>
+            {selectedError && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col border border-gray-200">
+
+                        {/* Header */}
+                        <div className="p-5 border-b flex justify-between items-center bg-red-50">
+                            <div>
+                                <h3 className="text-xl font-bold text-red-800">Validation Errors</h3>
+                                <p className="text-sm text-red-600">Please correct the following issues and re-submit.</p>
+                            </div>
+                            <button
+                                onClick={() => setSelectedError(null)}
+                                className="text-gray-400 hover:text-gray-600 transition-colors text-3xl leading-none"
+                            >
+                                &times;
+                            </button>
+                        </div>
+
+                        {/* Scrollable Content */}
+                        <div className="p-0 overflow-y-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="sticky top-0 bg-gray-50 shadow-sm">
+                                    <tr>
+                                        <th className="px-6 py-3 text-xs font-semibold uppercase text-gray-500 border-b">Item</th>
+                                        <th className="px-6 py-3 text-xs font-semibold uppercase text-gray-500 border-b">Code</th>
+                                        <th className="px-6 py-3 text-xs font-semibold uppercase text-gray-500 border-b">Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {Array.isArray(selectedError) ? (
+                                        selectedError.map((err, idx) => (
+                                            <tr key={idx} className="hover:bg-red-50/30 transition-colors">
+                                                <td className="px-6 py-4 align-top">
+                                                    <span className="inline-flex items-center justify-center bg-gray-100 text-gray-700 text-xs font-bold px-2.5 py-1 rounded">
+                                                        {err.itemSNo || "N/A"}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 align-top">
+                                                    <code className="text-xs font-mono font-bold text-red-600 bg-red-50 px-2 py-1 rounded border border-red-100">
+                                                        {err.errorCode}
+                                                    </code>
+                                                </td>
+                                                <td className="px-6 py-4 text-sm text-gray-700 leading-relaxed">
+                                                    {err.error}
+                                                    {err.status === "Invalid" && (
+                                                        <span className="ml-2 text-[10px] uppercase font-bold text-orange-500">
+                                                            [{err.status}]
+                                                        </span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={3} className="px-6 py-10 text-center text-gray-500 italic">
+                                                No detailed error information available.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-4 border-t bg-gray-50 flex justify-end">
+                            <button
+                                onClick={() => setSelectedError(null)}
+                                className="px-6 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-all active:scale-95 shadow-lg"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
+
     );
 }

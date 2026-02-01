@@ -10,6 +10,8 @@ export default function ProfileScreen({ darkMode }) {
     const [isEditing, setIsEditing] = useState(false);
     const [showPasswordForm, setshowPasswordForm] = useState(false);
     const [showPasswords, setShowPasswords] = useState(false);
+    const [isSavingProfile, setIsSavingProfile] = useState(false);
+    const [isSavingPassword, setIsSavingPassword] = useState(false);
 
     const [form, setForm] = useState({
         business_name: "",
@@ -139,6 +141,7 @@ export default function ProfileScreen({ darkMode }) {
             alert("Email is required");
             return;
         }
+        setIsSavingProfile(true);
         try {
             const payload = {
                 id: sessionStorage.getItem("userId"),
@@ -190,6 +193,8 @@ export default function ProfileScreen({ darkMode }) {
 
         } catch (err) {
             console.warn("Failed to save profile", err);
+        } finally {
+            setIsSavingProfile(false);
         }
     };
 
@@ -224,6 +229,7 @@ export default function ProfileScreen({ darkMode }) {
         }
         console.log("current password", passwordForm.current_password);
         console.log("confirm password", passwordForm.new_password);
+        setIsSavingPassword(true);
         try {
             const response = await fetch('/api/userPassword', {
                 method: 'PUT',
@@ -255,6 +261,8 @@ export default function ProfileScreen({ darkMode }) {
         } catch (error) {
             console.error("Error updating password:", error);
             alert("An error occurred. Please try again later.");
+        } finally {
+            setIsSavingPassword(false);
         }
     }
     return (
@@ -275,12 +283,23 @@ export default function ProfileScreen({ darkMode }) {
                             </button>
                         ) : (
                             <div className="flex gap-2">
-                                <button
+                                {/* <button
                                     type="submit"
                                     onClick={handleSave}
                                     className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md"
                                 >
                                     Save
+                                </button> */}
+                                <button
+                                    type="submit"
+                                    onClick={handleSave}
+                                    disabled={isSavingProfile}
+                                    className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md flex items-center gap-2 disabled:opacity-70"
+                                >
+                                    {isSavingProfile && (
+                                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                    )}
+                                    {isSavingProfile ? "Saving..." : "Save"}
                                 </button>
                                 <button
                                     onClick={() => setIsEditing(false)}
@@ -505,11 +524,21 @@ export default function ProfileScreen({ darkMode }) {
                             </div>
 
                             <div className="flex flex-col md:flex-row gap-3 mt-6">
-                                <button
+                                {/* <button
                                     type="submit"
                                     className="bg-blue-600 hover:bg-blue-700 transition-all duration-300 text-white font-semibold px-8 py-3 rounded-md"
                                 >
                                     Save Password
+                                </button> */}
+                                <button
+                                    type="submit"
+                                    disabled={isSavingPassword}
+                                    className="bg-blue-600 hover:bg-blue-700 transition-all duration-300 text-white font-semibold px-8 py-3 rounded-md flex items-center justify-center gap-2 disabled:opacity-70"
+                                >
+                                    {isSavingPassword && (
+                                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                    )}
+                                    {isSavingPassword ? "Updating..." : "Save Password"}
                                 </button>
                                 <button
                                     type="button"
