@@ -1402,7 +1402,8 @@ export async function PUT(req) {
       return NextResponse.json({ message: 'No fields to update' }, { status: 400 });
     }
     let sql;
-    if (isProd === '1' || isProd == 'true') {
+    if (isProd)
+    {
       sql = `UPDATE invoices_prod SET ${updates.join(', ')} WHERE id = ?`;
     } else {
       sql = `UPDATE invoices SET ${updates.join(', ')} WHERE id = ?`;
