@@ -19,6 +19,7 @@ export default function InvoicePage({ darkMode }) {
     const [customers, setCustomers] = useState([]);
     const [customerSearch, setCustomerSearch] = useState('');
     const [loading, setLoading] = useState(false);
+    const [HSCodeLoading, setHsCodeLoading] = useState(false);
     const [provinces, setProvinces] = useState([]);
     const [invoiceForm, setInvoiceForm] = useState({
         invoiceNo: '',
@@ -194,6 +195,7 @@ export default function InvoicePage({ darkMode }) {
             fetchLatestInvoice();
         }
         if (showForm) {
+            setHsCodeLoading(true);
             const fetchMasterData = async () => {
                 try {
                     // const token = process.env.NEXT_PUBLIC_FBR_BEARER_TOKEN;
@@ -249,6 +251,7 @@ export default function InvoicePage({ darkMode }) {
                     );
                     //  console.log("AFTER HS codes and transTypeData data", transTypeData);
                     //    console.log("AFTER HS codes and saleTypeData data", saleTypeData);
+                    setHsCodeLoading(false);
 
 
                 } catch (err) {
@@ -355,7 +358,9 @@ export default function InvoicePage({ darkMode }) {
         const date = dateOverride ?? invoiceForm.date; // e.g. "2025-12-25"
 
         // Prefer explicit TransactionTypeId if available, otherwise try to resolve from description
-        let transTypeId = rowOverride?.TransactionTypeId ?? rows[index]?.TransactionTypeId;
+        let transTypeId =
+            rowOverride?.TransactionTypeId ??
+            rows[index]?.TransactionTypeId;
         if (!transTypeId) {
             const TransactionTypeDesc = (rowOverride?.TransactionType ?? rows[index]?.TransactionType ?? "").trim();
             if (TransactionTypeDesc) {
@@ -402,7 +407,7 @@ export default function InvoicePage({ darkMode }) {
 
             const json = await response.json();
             const rates = Array.isArray(json.data) ? json.data : [];
-            //   console.log("fetched Rate options", rates);
+            console.log("fetched Rate options", rates);
 
             if (rates.length === 0) {
                 handleInputChange(index, "rateOptions", []);
@@ -424,7 +429,26 @@ export default function InvoicePage({ darkMode }) {
                     handleInputChange(index, "rateDesc", r.ratE_DESC ?? "");
 
                     // After we set the rate value, attempt to fetch SROs for this row
-                    setTimeout(() => fetchSroScheduleOptions(index, { ...(rowOverride ?? rows[index]), rateId: r.ratE_ID }, date, provinceCode), 0);
+                    //setTimeout(() => fetchSroScheduleOptions(index, { ...(rowOverride ?? rows[index]), rateId: r.ratE_ID }, date, provinceCode), 0);
+                    const updatedRow = {
+                        ...(rowOverride ?? rows[index]),
+                        rateId: matched.ratE_ID,
+                        sroOptions: [],
+                        sroScheduleNo: "",
+                        sroScheduleId: "",
+                        sroItemOptions: [],
+                        sroItemId: "",
+                        sroItemSerialNo: ""
+                    };
+
+                    handleInputChange(index, "sroOptions", []);
+                    handleInputChange(index, "sroScheduleNo", "");
+                    handleInputChange(index, "sroScheduleId", "");
+                    handleInputChange(index, "sroItemOptions", []);
+                    handleInputChange(index, "sroItemId", "");
+                    handleInputChange(index, "sroItemSerialNo", "");
+
+                    fetchSroScheduleOptions(index, updatedRow, date, provinceCode);
                 }
             } else {
                 handleInputChange(index, "rateOptions", rates);
@@ -436,15 +460,46 @@ export default function InvoicePage({ darkMode }) {
                 const matched = rates.find(o => String(o.ratE_ID) === String(existingRateId) || String(o.ratE_VALUE) === String(existingRateVal) || String(o.ratE_DESC) === String(existingRateVal));
                 if (matched) {
                     // Only update if the matched value differs from what we have
-                    if (String(rows[index]?.rate) !== String(matched.ratE_VALUE ?? matched.ratE_ID ?? matched.ratE_DESC) || Number(rows[index]?.rateId || 0) !== Number(matched.ratE_ID || 0)) {
-                        handleInputChange(index, "rate", String(matched.ratE_VALUE ?? matched.ratE_ID ?? matched.ratE_DESC));
-                        handleInputChange(index, "rateId", matched.ratE_ID ?? 0);
-                        handleInputChange(index, "rateDesc", matched.ratE_DESC ?? "");
+                    // if (String(rows[index]?.rate) !== String(matched.ratE_VALUE ?? matched.ratE_ID ?? matched.ratE_DESC) || Number(rows[index]?.rateId || 0) !== Number(matched.ratE_ID || 0)) {
+                    handleInputChange(index, "rate", String(matched.ratE_VALUE ?? matched.ratE_ID ?? matched.ratE_DESC));
+                    handleInputChange(index, "rateId", matched.ratE_ID ?? 0);
+                    handleInputChange(index, "rateDesc", matched.ratE_DESC ?? "");
 
-                        setTimeout(() => fetchSroScheduleOptions(index, { ...(rowOverride ?? rows[index]), rateId: matched.ratE_ID }, date, provinceCode), 0);
-                    }
+                    // handleInputChange(index, 'sroOptions', []);
+                    // handleInputChange(index, "sroScheduleNo", "");
+                    // handleInputChange(index, "sroScheduleId", '');
+                    // handleInputChange(index, "sroItemOptions", []);
+                    // handleInputChange(index, "sroItemId", '');
+                    // handleInputChange(index, "sroItemSerialNo", "");
+
+                    // setTimeout(() => fetchSroScheduleOptions(index, { ...(rowOverride ?? rows[index]), rateId: matched.ratE_ID }, date, provinceCode), 0);
+                    const updatedRow = {
+                        ...(rowOverride ?? rows[index]),
+                        rateId: matched.ratE_ID,
+                        sroOptions: [],
+                        sroScheduleNo: "",
+                        sroScheduleId: "",
+                        sroItemOptions: [],
+                        sroItemId: "",
+                        sroItemSerialNo: ""
+                    };
+
+                    handleInputChange(index, "sroOptions", []);
+                    handleInputChange(index, "sroScheduleNo", "");
+                    handleInputChange(index, "sroScheduleId", "");
+                    handleInputChange(index, "sroItemOptions", []);
+                    handleInputChange(index, "sroItemId", "");
+                    handleInputChange(index, "sroItemSerialNo", "");
+
+                    fetchSroScheduleOptions(index, updatedRow, date, provinceCode);
+                    //  }
                 } else {
-                    // leave existing values untouched
+                    handleInputChange(index, 'sroOptions', []);
+                    handleInputChange(index, "sroScheduleNo", "");
+                    handleInputChange(index, "sroScheduleId", '');
+                    handleInputChange(index, "sroItemOptions", []);
+                    handleInputChange(index, "sroItemId", '');
+                    handleInputChange(index, "sroItemSerialNo", "");
                 }
             }
         } catch (err) {
@@ -456,17 +511,17 @@ export default function InvoicePage({ darkMode }) {
         }
     };
 
-    useEffect(() => {
-        // Re-fetch rates for all rows when date or seller province id changes
-        // NOTE: intentionally do NOT depend on rows.length so adding a new row doesn't trigger re-fetch for existing rows.
-        if (!invoiceForm.date || !invoiceForm.sellerProvinceId) {
-            // console.log("Date or seller province id missing, skipping rate fetch", invoiceForm.date, invoiceForm.sellerProvinceId);
-            return;
-        }
-        rows.forEach((r, idx) => {
-            if (r && (r.TransactionTypeId || r.TransactionType)) fetchSalesTaxRate(idx);
-        });
-    }, [invoiceForm.date, invoiceForm.sellerProvinceId]);
+    // useEffect(() => {
+    //     // Re-fetch rates for all rows when date or seller province id changes
+    //     // NOTE: intentionally do NOT depend on rows.length so adding a new row doesn't trigger re-fetch for existing rows.
+    //     if (!invoiceForm.date || !invoiceForm.sellerProvinceId) {
+    //         // console.log("Date or seller province id missing, skipping rate fetch", invoiceForm.date, invoiceForm.sellerProvinceId);
+    //         return;
+    //     }
+    //     rows.forEach((r, idx) => {
+    //         if (r && (r.TransactionTypeId || r.TransactionType)) fetchSalesTaxRate(idx);
+    //     });
+    // }, [invoiceForm.date, invoiceForm.sellerProvinceId]);
 
     // Enhanced SRO fetch: prefers explicit rateId and sellerProvinceId when available
     const fetchSroScheduleOptions = async (index, rowOverride, dateOverride, provinceOverride) => {
@@ -491,11 +546,16 @@ export default function InvoicePage({ darkMode }) {
         );
         const provinceCode = matchingProvince ? Number(matchingProvince.stateProvinceCode ?? matchingProvince.id ?? 0) : null;
 
-        //console.log("Fetching SRO for date:", date, "resolved rateId:", rateId, "provinceCode:", provinceCode);
+        console.log("Fetching SRO for date:", date, "resolved rateId:", rateId, "provinceCode:", provinceCode);
 
         if (!date || (!rateId && rateId !== 0) || !provinceCode) {
             // console.warn('Missing required params for SRO fetch', { date, rateId, provinceCode });
-            //handleInputChange(index, 'sroOptions', []);
+            handleInputChange(index, 'sroOptions', []);
+            handleInputChange(index, "sroScheduleNo", "");
+            handleInputChange(index, "sroScheduleId", '');
+            handleInputChange(index, "sroItemOptions", []);
+            handleInputChange(index, "sroItemId", '');
+            handleInputChange(index, "sroItemSerialNo", "");
             return;
         }
 
@@ -2210,7 +2270,7 @@ export default function InvoicePage({ darkMode }) {
 
                 const calculatedTotal = internalPrice * internalQty;
 
-                if ( Math.abs(calculatedTotal - exclTax) > 0.01) {
+                if (Math.abs(calculatedTotal - exclTax) > 0.01) {
                     alert(
                         `Validation Error at Row ${i + 1}:\n` +
                         `Internal Total (${calculatedTotal.toFixed(2)}) does not match Excl. Tax (${exclTax.toFixed(2)})`
@@ -2854,8 +2914,8 @@ export default function InvoicePage({ darkMode }) {
                             <th style="border:1px solid #000; padding:2px; width:13%; text-align:left;">Product Description</th>
                             ${shouldShowHeader('SRO Schedule No.', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:5%; text-align:center;">SRO Schedule No.</th>` : ''}
                             ${shouldShowHeader('SRO Item Sr No.', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:5%; text-align:center;">SRO Item Sr No.</th>` : ''}
-                            <th style="border:1px solid #000; padding:2px; width:6%; text-align:center;">FBR UoM</th>
-                            ${shouldShowHeader('Internal UoM', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:3%; text-align:center;">Int. UOM</th>` : ''}
+                            <th style="border:1px solid #000; padding:2px; width:6%; text-align:center;">FBR Unit</th>
+                            ${shouldShowHeader('Internal UoM', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:3%; text-align:center;">Internal UOM</th>` : ''}
                             <th style="border:1px solid #000; padding:2px; width:5%; text-align:center;">FBR Price</th>
                             ${shouldShowHeader('Internal Single Unit', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:3%; text-align:center;">Int. Price</th>` : ''}
                             <th style="border:1px solid #000; padding:2px; width:5%; text-align:center;">FBR Qty</th>
@@ -2969,6 +3029,35 @@ export default function InvoicePage({ darkMode }) {
     //         }, 0);
     //     }
     // };
+
+    // useEffect(() => {
+    //     rows.forEach((row, index) => {
+    //         if (row.TransactionTypeId) {
+    //             fetchSalesTaxRate(index, undefined, row);
+    //         }
+    //     });
+    // }, [rows.map(r => r.TransactionTypeId).join()]);
+
+    // useEffect(() => {
+    //     rows.forEach((row, index) => {
+    //         if (row.rateId) {
+    //             fetchSroScheduleOptions(
+    //                 index,
+    //                 row,
+    //                 undefined,
+    //                 invoiceForm.sellerProvinceId ?? invoiceForm.sellerProvince
+    //             );
+    //         }
+    //     });
+    // }, [rows.map(r => r.rateId).join()]);
+
+    // useEffect(() => {
+    //     rows.forEach((row, index) => {
+    //         if (row.sroScheduleId) {
+    //             fetchSroItemOptions(index, row);
+    //         }
+    //     });
+    // }, [rows.map(r => r.sroScheduleId).join()]);
     const handleInputChange = (index, name, value) => {
         //console.log(`Row ${index} change:`, name, value);
 
@@ -3405,7 +3494,11 @@ export default function InvoicePage({ darkMode }) {
                     <div className={`${darkMode ? 'bg-gray-900' : 'bg-white'} rounded-xl shadow-lg p-6 w-full max-w-8xl h-[90vh] overflow-y-auto custom-scroll`}>
 
 
-                        <form onSubmit={handleInvoiceSubmit} className="">
+                        {HSCodeLoading ? (
+                            <div className="flex justify-center items-center h-164">
+                                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+                            </div>
+                        ) : (<form onSubmit={handleInvoiceSubmit} className="">
                             <div className="flex justify-between items-center mb-6">
                                 <h2 className="text-2xl font-bold">{isEditMode ? (isReadOnly ? 'View Invoice' : 'Edit Invoice') : 'Add Invoice'}</h2>
                                 <div className="flex gap-4 items-center">
@@ -3993,20 +4086,34 @@ export default function InvoicePage({ darkMode }) {
                                                         const targetId = transTypeList.find(
                                                             (t) => t.transactioN_DESC === targetDesc
                                                         )?.transactioN_TYPE_ID;
+                                                        console.log("Selected targetId mapping:", targetId);
+                                                        // setRows((prevRows) =>
+                                                        //     prevRows.map((row) => ({
+                                                        //         ...row,
+                                                        //         TransactionType: targetDesc,
+                                                        //         TransactionTypeId: targetId || row.TransactionTypeId,
+                                                        //     }))
+                                                        // );
 
-                                                        setRows((prevRows) =>
-                                                            prevRows.map((row) => ({
+                                                        // setTimeout(() => {
+                                                        //     rows.forEach((row, idx) =>
+                                                        //         fetchSalesTaxRate(idx, undefined, row)
+                                                        //     );
+                                                        // }, 200);
+                                                        setRows((prevRows) => {
+                                                            const updatedRows = prevRows.map((row) => ({
                                                                 ...row,
                                                                 TransactionType: targetDesc,
                                                                 TransactionTypeId: targetId || row.TransactionTypeId,
-                                                            }))
-                                                        );
+                                                            }));
 
-                                                        setTimeout(() => {
-                                                            rows.forEach((row, idx) =>
-                                                                fetchSalesTaxRate(idx, undefined, row)
-                                                            );
-                                                        }, 0);
+                                                            // Immediately use updatedRows (NOT rows)
+                                                            updatedRows.forEach((row, idx) => {
+                                                                fetchSalesTaxRate(idx, undefined, row);
+                                                            });
+
+                                                            return updatedRows;
+                                                        });
                                                     }
                                                 }}
                                             >
@@ -4969,8 +5076,10 @@ export default function InvoicePage({ darkMode }) {
                                                 </td>
 
                                                 <td className="px-4 py-3 whitespace-nowrap">
-                                                    {row.sroOptions && row.sroOptions.length > 0 ? (
+                                                    {/* {row.sroOptions && row.sroOptions.length > 0 ? ( */}
+                                                    {Array.isArray(row.sroOptions) && row.sroOptions.length > 0 ? (
                                                         <select
+                                                            key={`select-${row.rateId}`}   // 👈 force re-mount when rate changes
                                                             value={row.sroScheduleId ?? ""}
                                                             onChange={(e) => { handleInputChange(index, "sroScheduleId", e.target.value); setHasChanged(true); }}
                                                             className="w-full border rounded px-2 py-1"
@@ -4990,8 +5099,9 @@ export default function InvoicePage({ darkMode }) {
                                                         </select>
                                                     ) : (
                                                         <input
+                                                            key={`input-${row.rateId}`}   // 👈 force re-mount
                                                             name="sroScheduleNo"
-                                                            value={row.sroScheduleNo ?? "not found"}
+                                                            value={row.sroScheduleNo ?? ""}
                                                             onChange={(e) => { handleInputChange(index, "sroScheduleNo", e.target.value); setHasChanged(true); }}
                                                             className="w-full border rounded px-2 py-1"
                                                             readOnly={isReadOnly}
@@ -4999,9 +5109,9 @@ export default function InvoicePage({ darkMode }) {
                                                     )}
 
                                                     {/* Hidden inputs to keep IDs present */}
-                                                    <input type="hidden" name={`rows[${index}].sroScheduleId`} value={row.sroScheduleId ?? ''} />
+                                                    {/* <input type="hidden" name={`rows[${index}].sroScheduleId`} value={row.sroScheduleId ?? ''} />
                                                     <input type="hidden" name={`rows[${index}].sroScheduleNoId`} value={row.sroScheduleNoId ?? ''} />
-                                                    <input type="hidden" name={`rows[${index}].sroScheduleNo`} value={row.sroScheduleNo ?? ''} />
+                                                    <input type="hidden" name={`rows[${index}].sroScheduleNo`} value={row.sroScheduleNo ?? ''} /> */}
                                                 </td>
 
 
@@ -5375,7 +5485,7 @@ export default function InvoicePage({ darkMode }) {
                                 </div>
                             </div>
 
-                        </form>
+                        </form>)}
                     </div>
                 </div>
             )}
