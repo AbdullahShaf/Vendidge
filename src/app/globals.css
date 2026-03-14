@@ -52,9 +52,8 @@ input:-webkit-autofill:active {
 .custom-scroll::-webkit-scrollbar-thumb:hover {
   background: #3b82f6; 
 }
-
+/* 
 @media print {
-  /* Hide EVERYTHING except the print container */
   html, body {
     margin: 0 !important;
     padding: 0 !important;
@@ -83,7 +82,7 @@ input:-webkit-autofill:active {
     print-color-adjust: exact;
   }
 
-  /* Force black text, remove any backgrounds/images that might bleed */
+
   * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
@@ -91,9 +90,38 @@ input:-webkit-autofill:active {
     color: black !important;
   }
 
-  /* Optional: remove page margins in print dialog */
   @page {
     margin: 10mm !important;
-    size: A4 portrait !important;
+    size: A4 landscape !important;
   }
+} */
+
+@media print {
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    overflow: visible !important; /* Changed from hidden to ensure multi-page support */
+  }
+
+  body > *:not(#print-invoice-container) {
+    display: none !important;
+  }
+
+  #print-invoice-container {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    /* FIX: Change max-width from 210mm to 297mm (A4 Landscape Width) */
+    max-width: 100% !important; 
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  /* @page {
+    size: A4 landscape !important;
+    margin: 10mm !important;
+  } */
+ 
 }

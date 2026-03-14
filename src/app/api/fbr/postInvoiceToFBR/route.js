@@ -149,7 +149,7 @@ export async function POST(request) {
             try {
                 await db.query(
                     `UPDATE ${tableName} 
-                     SET status = ?, fbr_invoice_no = ? 
+                     SET status = ?, fbr_invoice_no = ? , invoice_posted_date = CURDATE()
                      WHERE user_id = ? AND id = ?`,
                     [finalStatus, fbrInvoiceNo, userId, invoiceId]
                 );

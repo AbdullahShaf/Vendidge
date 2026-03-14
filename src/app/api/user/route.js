@@ -71,7 +71,7 @@ export async function GET(req) {
       `SELECT * FROM users WHERE id = ?`,
       [userId]
     );
-    console.log('Fetched user:', rows);
+   // console.log('Fetched user:', rows);
     return NextResponse.json(rows);
 
   } catch (error) {

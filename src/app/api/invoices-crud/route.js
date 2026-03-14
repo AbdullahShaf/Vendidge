@@ -16,7 +16,7 @@ export async function POST(req) {
     console.log("Token:", token);
     console.log('isProd:', isProd);
     const body = await req.json();
-    const { invoiceNo, sellerNTNCNIC, sellerBusinessName, sellerAddress, userId, customerId, buyerProvince, sellerProvince, sellerProvinceId, scenarioCodeId, saleType, buyerType, fbrInvoiceRefNo, date, items } = body;
+    const { invoiceNo, sellerNTNCNIC, sellerBusinessName, sellerAddress, userId, customerId, buyerProvince, sellerProvince, sellerProvinceId, scenarioCodeId, saleType, buyerType, fbrInvoiceRefNo, date, challanNo, challanDate, items } = body;
     // console.log(JSON.stringify({
     //   invoiceNo, userId, customerId, date,
     //   buyerProvince, sellerProvince, sellerProvinceId, scenarioCodeId,
@@ -25,7 +25,7 @@ export async function POST(req) {
     //   items
     // }, null, 2));
     if (!invoiceNo || !userId || !customerId || !date || !buyerProvince || !sellerProvince || !sellerProvinceId || !scenarioCodeId || !buyerType || !saleType || !items) {
-      console.log("fields:", invoiceNo, userId, customerId, buyerProvince, sellerProvince, sellerProvinceId, scenarioCodeId, saleType, buyerType, fbrInvoiceRefNo, date, items, sellerNTNCNIC, sellerBusinessName, sellerAddress);
+      console.log("fields:", invoiceNo, userId, customerId, buyerProvince, sellerProvince, sellerProvinceId, scenarioCodeId, saleType, buyerType, fbrInvoiceRefNo, date, challanNo, challanDate, items, sellerNTNCNIC, sellerBusinessName, sellerAddress);
       return NextResponse.json(
         { message: "Missing required fields" },
         { status: 400 }
@@ -119,8 +119,8 @@ export async function POST(req) {
     if (isProd) {
       console.log("Inserting into invoices_prod");
       [result] = await db.query(
-        `INSERT INTO invoices_prod (invoice_no, user_id, invoice_date, customer_id, buyerProvince, sellerProvince, sellerProvinceId, scenario_code,saleType, buyerType,fbrInvoiceRefNo, items)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO invoices_prod (invoice_no, user_id, invoice_date, customer_id, buyerProvince, sellerProvince, sellerProvinceId, scenario_code,saleType, buyerType,fbrInvoiceRefNo , challanNo, challanDate, items)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           invoiceNo,
           userId,
@@ -133,13 +133,15 @@ export async function POST(req) {
           saleType,
           buyerType,
           fbrInvoiceRefNo,
+          challanNo,
+          challanDate,
           JSON.stringify(items),
         ]
       );
     } else {
       [result] = await db.query(
-        `INSERT INTO invoices (invoice_no, user_id, invoice_date, customer_id, buyerProvince, sellerProvince, sellerProvinceId, scenario_code,saleType, buyerType,fbrInvoiceRefNo, items)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO invoices (invoice_no, user_id, invoice_date, customer_id, buyerProvince, sellerProvince, sellerProvinceId, scenario_code,saleType, buyerType,fbrInvoiceRefNo , challanNo, challanDate, items)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           invoiceNo,
           userId,
@@ -152,6 +154,8 @@ export async function POST(req) {
           saleType,
           buyerType,
           fbrInvoiceRefNo,
+          challanNo,
+          challanDate,
           JSON.stringify(items),
         ]
       );
@@ -239,7 +243,7 @@ export async function PUT(req) {
     const token = authHeader.replace(/^Bearer\s+/i, '');
     console.log("Token:", token);
     const body = await req.json();
-    const { invoiceId, invoiceNo, sellerNTNCNIC, sellerBusinessName, sellerAddress, date, customerId, buyerProvince, sellerProvince, sellerProvinceId, scenarioCode, scenarioCodeId, saleType, buyerType, fbrInvoiceRefNo, items, status, toValidate } = body;
+    const { invoiceId, invoiceNo, sellerNTNCNIC, sellerBusinessName, sellerAddress, date, customerId, buyerProvince, sellerProvince, sellerProvinceId, scenarioCode, scenarioCodeId, saleType, buyerType, fbrInvoiceRefNo, items , status, toValidate, challanNo, challanDate } = body;
     console.log(JSON.stringify({
       toValidate,
       invoiceId,
@@ -300,42 +304,1001 @@ export async function PUT(req) {
     //   const scenarioCode = scenarioCodeRow[0];
     //   console.log("Scenario Code:", scenarioCode.code);
 
-    const fbrPayload = {
-      invoiceType: saleType,
-      invoiceDate: date,
-      sellerNTNCNIC: sellerNTNCNIC,
-      sellerBusinessName: sellerBusinessName,
-      sellerProvince: sellerProvince,
-      sellerAddress: sellerAddress,
-      buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
-      buyerBusinessName: buyerInfo.buyerBusinessName,
-      buyerProvince: buyerInfo.buyerProvince,
-      buyerAddress: buyerInfo.buyerAddress,
-      buyerRegistrationType: buyerType,
-      invoiceRefNo: fbrInvoiceRefNo || "",
+    const fbrPayload = (() => {
+      switch (scenarioCode) {
+        case "SN001":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              // extraTax: Number(item.extraTax || ""),
+              extraTax: Number(item.extraTax) > 0 ? Number(item.extraTax) : "",
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN002":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+               // extraTax: Number(item.extraTax || ""),
+              extraTax: Number(item.extraTax) > 0 ? Number(item.extraTax) : "",
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN003":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN004":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN005":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+               // extraTax: Number(item.extraTax || ""),
+              extraTax: Number(item.extraTax) > 0 ? Number(item.extraTax) : "",
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN006":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+               // extraTax: Number(item.extraTax || ""),
+              extraTax: Number(item.extraTax) > 0 ? Number(item.extraTax) : "",
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN007":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN008":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN009":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN010":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN011":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            dataSource: "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN012":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN013":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN014":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN015":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            additional1: "",
+            additional2: "",
+            additional3: "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN016":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN017":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN018":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN019":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN020":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN021":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN022":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN023":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN024":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN025":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+               // extraTax: Number(item.extraTax || ""),
+              extraTax: Number(item.extraTax) > 0 ? Number(item.extraTax) : "",
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN026":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN027":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              extraTax: Number(item.extraTax || 0),
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+        case "SN028":
+          return {
+            invoiceType: saleType,
+            invoiceDate: date,
+            sellerNTNCNIC: sellerNTNCNIC,
+            sellerBusinessName: sellerBusinessName,
+            sellerProvince: sellerProvince,
+            sellerAddress: sellerAddress,
+            buyerNTNCNIC: buyerInfo.buyerNTNCNIC,
+            buyerBusinessName: buyerInfo.buyerBusinessName,
+            buyerProvince: buyerInfo.buyerProvince,
+            buyerAddress: buyerInfo.buyerAddress,
+            buyerRegistrationType: buyerType,
+            invoiceRefNo: fbrInvoiceRefNo || "",
+            ...(!isProd && { scenarioId: scenarioCode }),
+            items: items.map(item => ({
+              hsCode: item.hsCode,
+              productDescription: item.description,
+              rate: item.rateDesc,
+              uoM: item.unit,
+              quantity: Number(item.qty),
+              totalValues: Number(item.totalValues || item.valueInclTax || 0),
+              valueSalesExcludingST: Number(item.valueSalesExcludingST),
+              fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
+              salesTaxApplicable: Number(item.salesTaxApplicable || 0),
+              salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
+              // extraTax: Number(item.extraTax || ""),
+              extraTax: Number(item.extraTax) > 0 ? Number(item.extraTax) : "",
 
-      ...(!isProd && { scenarioId: scenarioCode }),
-
-      items: items.map(item => ({
-        hsCode: item.hsCode,
-        productDescription: item.description,
-        rate: item.rateDesc,
-        uoM: item.unit,
-        quantity: Number(item.qty),
-        totalValues: Number(item.totalValues || item.valueInclTax || 0),
-        valueSalesExcludingST: Number(item.valueSalesExcludingST),
-        fixedNotifiedValueOrRetailPrice: Number(item.fixedNotifiedValueOrRetailPrice || 0),
-        salesTaxApplicable: Number(item.salesTaxApplicable || 0),
-        salesTaxWithheldAtSource: Number(item.salesTaxWithheldAtSource || 0),
-        extraTax: Number(item.extraTax || 0),
-        furtherTax: Number(item.furtherTax || 0),
-        sroScheduleNo: item.sroScheduleNo || "",
-        fedPayable: Number(item.fedPayable || 0),
-        discount: Number(item.discount || 0),
-        saleType: item.TransactionType || "",
-        sroItemSerialNo: item.sroItemSerialNo || ""
-      }))
-    };
+              furtherTax: Number(item.furtherTax || 0),
+              sroScheduleNo: item.sroScheduleNo || "",
+              fedPayable: Number(item.fedPayable || 0),
+              discount: Number(item.discount || 0),
+              saleType: item.TransactionType || "",
+              sroItemSerialNo: item.sroItemSerialNo || ""
+            }))
+          };
+      }
+    })();
 
     if (toValidate) {
       console.log("FBR Validation Payload:", fbrPayload);
@@ -350,7 +1313,23 @@ export async function PUT(req) {
           success: false
         }, { status: 503 });
       }
-      const fbrResult = await fbrResponse.json();
+      // const rawText = await fbrResponse.text();
+      // const fbrResult = await fbrResponse.json();
+      // const rawText = await fbrResponse.text();
+
+      let fbrResult;
+      try {
+        // fbrResult = JSON.parse(rawText);
+        fbrResult = await fbrResponse.json();
+      } catch (e) {
+        console.error("FBR returned non-JSON:", fbrResult);
+
+        return NextResponse.json({
+          message: "Invalid response from FBR",
+          rawResponse: rawText
+        }, { status: 502 });
+      }
+
 
       console.log("FBR Validation Response:", JSON.stringify(fbrResult, null, 2));
       const fbrstatus = fbrResult.validationResponse.status;
@@ -367,11 +1346,24 @@ export async function PUT(req) {
             [invoiceId]
           );
         }
+        let errorData = [];
+
+        if (fbrResult.validationResponse.invoiceStatuses && fbrResult.validationResponse.invoiceStatuses.length > 0) {
+          errorData = fbrResult.validationResponse.invoiceStatuses;
+        } else {
+          errorData = [{
+            itemSNo: "0",
+            statusCode: fbrResult.validationResponse.statusCode,
+            status: fbrResult.validationResponse.status,
+            errorCode: fbrResult.validationResponse.errorCode,
+            error: fbrResult.validationResponse.error
+          }];
+        }
         await db.query(
           `INSERT INTO invoices_error (userid, invoiceid, error) 
    VALUES (?, ?, ?) 
    ON DUPLICATE KEY UPDATE error = VALUES(error)`,
-          [sellerInfo.userId, invoiceId, JSON.stringify(fbrResult.validationResponse.invoiceStatuses)]
+          [sellerInfo.userId, invoiceId, JSON.stringify(errorData)]
         );
         return NextResponse.json({
           message: "FBR validation failed, See Error Logs",
@@ -409,12 +1401,14 @@ export async function PUT(req) {
     if (typeof fbrInvoiceRefNo !== 'undefined') { updates.push('fbrInvoiceRefNo = ?'); params.push(fbrInvoiceRefNo); }
     if (typeof items !== 'undefined') { updates.push('items = ?'); params.push(JSON.stringify(items)); }
     if (typeof status !== 'undefined') { updates.push('status = ?'); params.push(status); }
+    if(typeof challanNo !== 'undefined') { updates.push('challanNo = ?'); params.push(challanNo); }
+    if(typeof challanDate !== 'undefined') { updates.push('challanDate = ?'); params.push(challanDate); }
 
     if (updates.length === 0) {
       return NextResponse.json({ message: 'No fields to update' }, { status: 400 });
     }
     let sql;
-    if (isProd === '1' || isProd == 'true') {
+    if (isProd) {
       sql = `UPDATE invoices_prod SET ${updates.join(', ')} WHERE id = ?`;
     } else {
       sql = `UPDATE invoices SET ${updates.join(', ')} WHERE id = ?`;
@@ -551,5 +1545,3 @@ export async function DELETE(req) {
     connection.release();
   }
 }
-
-

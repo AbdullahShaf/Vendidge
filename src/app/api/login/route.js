@@ -8,20 +8,35 @@ export async function POST(req) {
   if (!identifier || !password) {
     return NextResponse.json({ message: 'identifier and password required' }, { status: 400 });
   }
-if (identifier.length !== 13 && identifier.length !== 7 && identifier.length !== 9) {
-  return NextResponse.json(
-    { message: 'Invalid format: CNIC must be 13 digits, NTN must be 7 or 9 digits' },
-    { status: 400 }
-  );
-}
+  if (identifier.length !== 13 && identifier.length !== 7 && identifier.length !== 9) {
+    return NextResponse.json(
+      { message: 'Invalid format: CNIC must be 13 digits, NTN must be 7 or 9 digits' },
+      { status: 400 }
+    );
+  }
   try {
 
-    const [rows] = await db.query('SELECT * FROM users WHERE cnic_ntn = ? AND isAllowed =1', [identifier]);
+    // const [rows] = await db.query('SELECT * FROM users WHERE cnic_ntn = ? AND isAllowed =1', [identifier]);
+    // if (rows.length === 0) {
+    //   return NextResponse.json({ message: 'User not found' }, { status: 404 });
+    // }
+    const [rows] = await db.query('SELECT * FROM users WHERE cnic_ntn = ?', [identifier]);
+
     if (rows.length === 0) {
       return NextResponse.json({ message: 'User not found' }, { status: 404 });
     }
 
     const user = rows[0];
+    if (user.isAllowed !== 1) {
+      return NextResponse.json(
+        {
+          message: 'Your account is restricted.',
+          reason: user.reason || 'No reason provided by administrator.'
+        },
+        { status: 403 }
+      );
+    }
+
     if (password !== user.password) {
       return NextResponse.json(
         { message: 'Invalid credentials' },
@@ -36,8 +51,8 @@ if (identifier.length !== 13 && identifier.length !== 7 && identifier.length !==
     // }
 
     // return NextResponse.json({ message: 'Login successful', user: { id: user.id, email: user.email } });
-    console.log("all",user);
-    
+   // console.log("all", user);
+
     return NextResponse.json({
       message: 'Login successful',
       user: user

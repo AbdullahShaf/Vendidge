@@ -6,7 +6,7 @@ export async function GET(req) {
     // Call the stored procedure
     const [rows] = await db.query("SELECT * FROM scenarioCodeToTransactionType");
 
-    console.log("scenarioCodeToTransactionType:", rows);
+   // console.log("scenarioCodeToTransactionType:", rows);
     return NextResponse.json({ scenarioCodeToTransactionType: rows });
   } catch (err) {
     console.warn(err);

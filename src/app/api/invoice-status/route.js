@@ -17,27 +17,38 @@ export async function PUT(request) {
                 { status: 400 }
             );
         }
+        const today = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Asia/Karachi",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        }).format(new Date());
 
+        console.log("Updating invoice status in database:", { userId, id, fbrInvoiceNo, status, today });
          if (isProd === '1' || isProd === 'true') {
             await db.query(
                 `UPDATE invoices_prod 
-             SET status = ?, fbr_invoice_no = ? 
+             SET status = ?, fbr_invoice_no = ?, invoice_posted_date = ?
              WHERE user_id = ? AND id = ?`,
                 [
                     status,
                     fbrInvoiceNo ?? null,
+                    today,
                     userId,
                     id
                 ]
             );
         } else {
             await db.query(
-                `UPDATE invoices 
-             SET status = ?, fbr_invoice_no = ? 
-             WHERE user_id = ? AND id = ?`,
+               `UPDATE invoices 
+                SET status = ?,
+                     fbr_invoice_no = ?,
+                     invoice_posted_date = ?
+                WHERE user_id = ? AND id = ?`,
                 [
                     status,
                     fbrInvoiceNo ?? null,
+                    today,
                     userId,
                     id
                 ]

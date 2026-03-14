@@ -19,6 +19,7 @@ export default function InvoicePage({ darkMode }) {
     const [customers, setCustomers] = useState([]);
     const [customerSearch, setCustomerSearch] = useState('');
     const [loading, setLoading] = useState(false);
+    const [HSCodeLoading, setHsCodeLoading] = useState(false);
     const [provinces, setProvinces] = useState([]);
     const [invoiceForm, setInvoiceForm] = useState({
         invoiceNo: '',
@@ -38,6 +39,11 @@ export default function InvoicePage({ darkMode }) {
         tax: 0,
         inclTax: 0,
         status: '',
+        challanNo: '',
+        challanNoLabel: '',
+        challan_date: '',
+        challanDateLabel: '',
+        invoice_posted_date: '',
         items: [{
             hsCode: '',
             description: '',
@@ -75,6 +81,7 @@ export default function InvoicePage({ darkMode }) {
     const [selectedError, setSelectedError] = useState(null);
     const [isLoadingError, setIsLoadingError] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [fields, setFields] = useState([]);
 
     const emptyRow = {
         hsCode: "",
@@ -102,6 +109,9 @@ export default function InvoicePage({ darkMode }) {
         discount: "",
         TransactionTypeId: 0,
         TransactionType: "",
+        internalSinglePrice: 0,
+        internalQty: 0,
+        internalUOM: "",
     };
 
     // generate short unique id for each row to avoid index-shift races in async callbacks
@@ -146,8 +156,20 @@ export default function InvoicePage({ darkMode }) {
                 console.warn("Failed to fetch customers:", err);
             }
         }
+
+        async function fetchUserChooseableFields() {
+            try {
+                const userId = sessionStorage.getItem("userId");
+                const res = await fetch(`/api/userChoosableFields?userId=${userId}`);
+                const data = await res.json();
+                setFields(data);
+            } catch (err) {
+                console.warn("Failed to fetch userChoosableFields:", err);
+            }
+        }
         // console.log("hs code ", hsCodes);
         // console.log("uom list ", uomList);
+        fetchUserChooseableFields();
         fetchScenarioCodes();
         fetchCustomers();
     }, []);
@@ -178,6 +200,7 @@ export default function InvoicePage({ darkMode }) {
             fetchLatestInvoice();
         }
         if (showForm) {
+            setHsCodeLoading(true);
             const fetchMasterData = async () => {
                 try {
                     // const token = process.env.NEXT_PUBLIC_FBR_BEARER_TOKEN;
@@ -221,7 +244,7 @@ export default function InvoicePage({ darkMode }) {
                     const transTypeData = await transTypeResponse.json();
                     const saleTypeData = await saleTypeResponse.json();
                     const scenarioCodeToTransactionTypeData = await scenarioCodeToTransactionTypeResponse.json();
-                    console.log("BEFORE HS codes and UOM data", scenarioCodeToTransactionTypeData);
+                    //    console.log("BEFORE HS codes and UOM data", scenarioCodeToTransactionTypeData);
                     setHsCodes(Array.isArray(hsData) ? hsData : []);
                     setUomList(Array.isArray(uomData) ? uomData : []);
                     setTransTypeList(Array.isArray(transTypeData) ? transTypeData : []);
@@ -231,8 +254,9 @@ export default function InvoicePage({ darkMode }) {
                             ? scenarioCodeToTransactionTypeData
                             : (scenarioCodeToTransactionTypeData.scenarioCodeToTransactionType || [])
                     );
-                    console.log("AFTER HS codes and transTypeData data", transTypeData);
+                    // console.log("AFTER HS codes and transTypeData data", transTypeData);
                     //    console.log("AFTER HS codes and saleTypeData data", saleTypeData);
+                    setHsCodeLoading(false);
 
 
                 } catch (err) {
@@ -339,7 +363,9 @@ export default function InvoicePage({ darkMode }) {
         const date = dateOverride ?? invoiceForm.date; // e.g. "2025-12-25"
 
         // Prefer explicit TransactionTypeId if available, otherwise try to resolve from description
-        let transTypeId = rowOverride?.TransactionTypeId ?? rows[index]?.TransactionTypeId;
+        let transTypeId =
+            rowOverride?.TransactionTypeId ??
+            rows[index]?.TransactionTypeId;
         if (!transTypeId) {
             const TransactionTypeDesc = (rowOverride?.TransactionType ?? rows[index]?.TransactionType ?? "").trim();
             if (TransactionTypeDesc) {
@@ -362,7 +388,7 @@ export default function InvoicePage({ darkMode }) {
         }
         const provinceCode = matchingProvince ? Number(matchingProvince.stateProvinceCode ?? matchingProvince.id ?? 0) : null;
 
-        //console.log("Fetching rate for date:", date, "transTypeId:", transTypeId, "provinceCode:", provinceCode);
+       // console.log("Fetching rate for date:", date, "transTypeId:", transTypeId, "provinceCode:", provinceCode);
 
         if (!date || !transTypeId || !provinceCode) {
             //  console.warn("Missing required params for rate fetch", { date, transTypeId, provinceCode });
@@ -386,7 +412,7 @@ export default function InvoicePage({ darkMode }) {
 
             const json = await response.json();
             const rates = Array.isArray(json.data) ? json.data : [];
-            //   console.log("fetched Rate options", rates);
+           // console.log("fetched Rate options", rates);
 
             if (rates.length === 0) {
                 handleInputChange(index, "rateOptions", []);
@@ -408,7 +434,26 @@ export default function InvoicePage({ darkMode }) {
                     handleInputChange(index, "rateDesc", r.ratE_DESC ?? "");
 
                     // After we set the rate value, attempt to fetch SROs for this row
-                    setTimeout(() => fetchSroScheduleOptions(index, { ...(rowOverride ?? rows[index]), rateId: r.ratE_ID }, date, provinceCode), 0);
+                    //setTimeout(() => fetchSroScheduleOptions(index, { ...(rowOverride ?? rows[index]), rateId: r.ratE_ID }, date, provinceCode), 0);
+                    const updatedRow = {
+                        ...(rowOverride ?? rows[index]),
+                        rateId: matched.ratE_ID,
+                        sroOptions: [],
+                        sroScheduleNo: "",
+                        sroScheduleId: "",
+                        sroItemOptions: [],
+                        sroItemId: "",
+                        sroItemSerialNo: ""
+                    };
+
+                    handleInputChange(index, "sroOptions", []);
+                    handleInputChange(index, "sroScheduleNo", "");
+                    handleInputChange(index, "sroScheduleId", "");
+                    handleInputChange(index, "sroItemOptions", []);
+                    handleInputChange(index, "sroItemId", "");
+                    handleInputChange(index, "sroItemSerialNo", "");
+
+                    fetchSroScheduleOptions(index, updatedRow, date, provinceCode);
                 }
             } else {
                 handleInputChange(index, "rateOptions", rates);
@@ -420,15 +465,46 @@ export default function InvoicePage({ darkMode }) {
                 const matched = rates.find(o => String(o.ratE_ID) === String(existingRateId) || String(o.ratE_VALUE) === String(existingRateVal) || String(o.ratE_DESC) === String(existingRateVal));
                 if (matched) {
                     // Only update if the matched value differs from what we have
-                    if (String(rows[index]?.rate) !== String(matched.ratE_VALUE ?? matched.ratE_ID ?? matched.ratE_DESC) || Number(rows[index]?.rateId || 0) !== Number(matched.ratE_ID || 0)) {
-                        handleInputChange(index, "rate", String(matched.ratE_VALUE ?? matched.ratE_ID ?? matched.ratE_DESC));
-                        handleInputChange(index, "rateId", matched.ratE_ID ?? 0);
-                        handleInputChange(index, "rateDesc", matched.ratE_DESC ?? "");
+                    // if (String(rows[index]?.rate) !== String(matched.ratE_VALUE ?? matched.ratE_ID ?? matched.ratE_DESC) || Number(rows[index]?.rateId || 0) !== Number(matched.ratE_ID || 0)) {
+                    handleInputChange(index, "rate", String(matched.ratE_VALUE ?? matched.ratE_ID ?? matched.ratE_DESC));
+                    handleInputChange(index, "rateId", matched.ratE_ID ?? 0);
+                    handleInputChange(index, "rateDesc", matched.ratE_DESC ?? "");
 
-                        setTimeout(() => fetchSroScheduleOptions(index, { ...(rowOverride ?? rows[index]), rateId: matched.ratE_ID }, date, provinceCode), 0);
-                    }
+                    // handleInputChange(index, 'sroOptions', []);
+                    // handleInputChange(index, "sroScheduleNo", "");
+                    // handleInputChange(index, "sroScheduleId", '');
+                    // handleInputChange(index, "sroItemOptions", []);
+                    // handleInputChange(index, "sroItemId", '');
+                    // handleInputChange(index, "sroItemSerialNo", "");
+
+                    // setTimeout(() => fetchSroScheduleOptions(index, { ...(rowOverride ?? rows[index]), rateId: matched.ratE_ID }, date, provinceCode), 0);
+                    const updatedRow = {
+                        ...(rowOverride ?? rows[index]),
+                        rateId: matched.ratE_ID,
+                        sroOptions: [],
+                        sroScheduleNo: "",
+                        sroScheduleId: "",
+                        sroItemOptions: [],
+                        sroItemId: "",
+                        sroItemSerialNo: ""
+                    };
+
+                    handleInputChange(index, "sroOptions", []);
+                    handleInputChange(index, "sroScheduleNo", "");
+                    handleInputChange(index, "sroScheduleId", "");
+                    handleInputChange(index, "sroItemOptions", []);
+                    handleInputChange(index, "sroItemId", "");
+                    handleInputChange(index, "sroItemSerialNo", "");
+
+                    fetchSroScheduleOptions(index, updatedRow, date, provinceCode);
+                    //  }
                 } else {
-                    // leave existing values untouched
+                    handleInputChange(index, 'sroOptions', []);
+                    handleInputChange(index, "sroScheduleNo", "");
+                    handleInputChange(index, "sroScheduleId", '');
+                    handleInputChange(index, "sroItemOptions", []);
+                    handleInputChange(index, "sroItemId", '');
+                    handleInputChange(index, "sroItemSerialNo", "");
                 }
             }
         } catch (err) {
@@ -440,17 +516,17 @@ export default function InvoicePage({ darkMode }) {
         }
     };
 
-    useEffect(() => {
-        // Re-fetch rates for all rows when date or seller province id changes
-        // NOTE: intentionally do NOT depend on rows.length so adding a new row doesn't trigger re-fetch for existing rows.
-        if (!invoiceForm.date || !invoiceForm.sellerProvinceId) {
-            // console.log("Date or seller province id missing, skipping rate fetch", invoiceForm.date, invoiceForm.sellerProvinceId);
-            return;
-        }
-        rows.forEach((r, idx) => {
-            if (r && (r.TransactionTypeId || r.TransactionType)) fetchSalesTaxRate(idx);
-        });
-    }, [invoiceForm.date, invoiceForm.sellerProvinceId]);
+    // useEffect(() => {
+    //     // Re-fetch rates for all rows when date or seller province id changes
+    //     // NOTE: intentionally do NOT depend on rows.length so adding a new row doesn't trigger re-fetch for existing rows.
+    //     if (!invoiceForm.date || !invoiceForm.sellerProvinceId) {
+    //         // console.log("Date or seller province id missing, skipping rate fetch", invoiceForm.date, invoiceForm.sellerProvinceId);
+    //         return;
+    //     }
+    //     rows.forEach((r, idx) => {
+    //         if (r && (r.TransactionTypeId || r.TransactionType)) fetchSalesTaxRate(idx);
+    //     });
+    // }, [invoiceForm.date, invoiceForm.sellerProvinceId]);
 
     // Enhanced SRO fetch: prefers explicit rateId and sellerProvinceId when available
     const fetchSroScheduleOptions = async (index, rowOverride, dateOverride, provinceOverride) => {
@@ -475,11 +551,16 @@ export default function InvoicePage({ darkMode }) {
         );
         const provinceCode = matchingProvince ? Number(matchingProvince.stateProvinceCode ?? matchingProvince.id ?? 0) : null;
 
-        //console.log("Fetching SRO for date:", date, "resolved rateId:", rateId, "provinceCode:", provinceCode);
+      //  console.log("Fetching SRO for date:", date, "resolved rateId:", rateId, "provinceCode:", provinceCode);
 
         if (!date || (!rateId && rateId !== 0) || !provinceCode) {
             // console.warn('Missing required params for SRO fetch', { date, rateId, provinceCode });
-            //handleInputChange(index, 'sroOptions', []);
+            handleInputChange(index, 'sroOptions', []);
+            handleInputChange(index, "sroScheduleNo", "");
+            handleInputChange(index, "sroScheduleId", '');
+            handleInputChange(index, "sroItemOptions", []);
+            handleInputChange(index, "sroItemId", '');
+            handleInputChange(index, "sroItemSerialNo", "");
             return;
         }
 
@@ -690,10 +771,10 @@ export default function InvoicePage({ darkMode }) {
                 .split('; ')
                 .find(row => row.startsWith('isProd='))
                 ?.split('=')[1];
-            console.log("isProd flag from cookies:", value, typeof value);
+           // console.log("isProd flag from cookies:", value, typeof value);
 
             const isProd = value === '1';
-            console.log("isProd flag after normalize:", isProd, typeof isProd);
+           // console.log("isProd flag after normalize:", isProd, typeof isProd);
             const payload = (() => {
                 switch (invoice.scenario_code) {
                     case "SN001":
@@ -1834,10 +1915,10 @@ export default function InvoicePage({ darkMode }) {
             console.log("FBR RESPONSE:", data);
             const message =
                 data?.fbrResponse?.validationResponse?.invoiceStatuses?.[0]?.error ||
-                data?.fbrResponse?.validationResponse?.error ||
-                "Posted successfully";
-
-            alert(`Invoice result: ${message}`);
+                data?.fbrResponse?.validationResponse?.error;
+            if (message !== undefined && message !== null && message !== "") {
+                alert(`Invoice result: ${message}`);
+            }
             // if (data?.fbrResponse?.validationResponse?.status === "Invalid") {
             //     await fetch(`/api/invoice-status`, {
             //         method: 'PUT',
@@ -1910,7 +1991,7 @@ export default function InvoicePage({ darkMode }) {
 
             const parsed = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
 
-            console.log("Parsed error data:", parsed);
+          //  console.log("Parsed error data:", parsed);
             setSelectedError(parsed);
         } catch (e) {
             console.error("Fetch error:", e);
@@ -1963,7 +2044,23 @@ export default function InvoicePage({ darkMode }) {
             };
             // console.log("view inv", inv.scenario_code);
             const currentScenario = inv.scenario_code;
-            console.log("status", inv.status);
+            // console.log("status", inv.status);
+            // console.log("no", inv.challanNo);
+            // console.log("date", inv.challanDate);
+            // console.log("posted", inv.posted);
+
+            const rawItems = inv.items ? (typeof inv.items === 'string' ? JSON.parse(inv.items) : inv.items) : [];
+            const itemsArray = Array.isArray(rawItems) ? rawItems : [];
+
+            // Now .reduce() will work because itemsArray is guaranteed to be an Array
+            const totalExclTax = itemsArray.reduce((sum, r) => sum + Number(r.valueSalesExcludingST || 0), 0);
+            const totalTax = itemsArray.reduce((sum, r) => sum + Number(r.salesTaxApplicable || 0), 0);
+            const totalInclTax = itemsArray.reduce((sum, r) => sum + Number(r.totalValues || 0), 0);
+
+            inv.exclTax = totalExclTax.toFixed(2);
+            inv.tax = totalTax.toFixed(2);
+            inv.inclTax = totalInclTax.toFixed(2);
+           // console.log('challan date,' , inv.challanDate , formatDateForInput(inv.challanDate));
             setInvoiceForm((prev) => ({
                 ...prev,
                 invoiceNo: inv.invoice_no || '',
@@ -1982,6 +2079,13 @@ export default function InvoicePage({ darkMode }) {
                 // Ensure FBR reference is loaded from whichever column name is present
                 fbrInvoiceRefNo: inv.fbrInvoiceRefNo ?? '',
                 status: inv.status || '',
+                challan_date: formatDateForInput(inv.challanDate) || '',
+                challanDateLabel: inv.challanDateLabel || '',
+                challanNo: inv.challanNo || '',
+                challanNoLabel: inv.challanNoLabel || '',
+                exclTax: inv.exclTax || '',
+                tax: inv.tax || '',
+                inclTax: inv.inclTax || '',
             }));
 
             setCustomerSearch(customerDisplay);
@@ -2160,7 +2264,7 @@ export default function InvoicePage({ darkMode }) {
         }
     };
 
-    const handleInvoiceSubmit = async (e, forceValidate = false) => {
+    const handleInvoiceSubmit = async (e, toValidate = false) => {
         console.log("Submitting invoice...");
         // e.preventDefault();
         if (e && typeof e.preventDefault === 'function') {
@@ -2182,8 +2286,34 @@ export default function InvoicePage({ darkMode }) {
         //         status: 'Not Posted',
         //     },
         // ]);
+        const validateAllInternalValues = () => {
+            for (let i = 0; i < rows.length; i++) {
+                const r = rows[i];
+                const internalQty = parseFloat(r.internalQty || 0);
+                const internalPrice = parseFloat(r.internalSinglePrice || 0);
+                if (internalQty === 0 && internalPrice === 0) {
+                    continue;
+                }
+                const exclTax = parseFloat(r.valueSalesExcludingST || r.exclTax || 0);
+
+                const calculatedTotal = internalPrice * internalQty;
+
+                if (Math.abs(calculatedTotal - exclTax) > 0.01) {
+                    alert(
+                        `Validation Error at Row ${i + 1}:\n` +
+                        `Internal Total (${calculatedTotal.toFixed(2)}) does not match Excl. Tax (${exclTax.toFixed(2)})`
+                    );
+                    return false;
+                }
+            }
+            return true;
+        };
+        if (!validateAllInternalValues()) {
+            setIsSubmitting(false);
+            return;
+        }
         const userId = sessionStorage.getItem("userId");
-        const invoiceToSubmit = {
+        let invoiceToSubmit = {
             userId: Number(userId),
             invoiceNo: invoiceForm.invoiceNo,
             date: invoiceForm.date,
@@ -2201,6 +2331,8 @@ export default function InvoicePage({ darkMode }) {
             fbrInvoiceRefNo: invoiceForm.fbrInvoiceRefNo,
             //registrationNo: Number(invoiceForm.registrationNo),
             buyerType: invoiceForm.buyerType,
+            challanNo: invoiceForm.challanNo,
+            challanDate: invoiceForm.challan_date,
             items: rows.map((row) => ({
                 hsCode: row.hsCode,
                 description: row.description,
@@ -2227,8 +2359,19 @@ export default function InvoicePage({ darkMode }) {
                 TransactionType: row.TransactionType,
                 sroItemSerialNo: row.sroItemSerialNo,
                 sroItemId: Number(row.sroItemId) || 0,
+                internalQty: Number(row.internalQty) || 0,
+                internalSinglePrice: Number(row.internalSinglePrice) || 0,
+                internalUOM: row.internalUOM || "",
             })),
         };
+        const value = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('isProd='))
+            ?.split('=')[1];
+     //   console.log("isProd flag from cookies:", value, typeof value);
+
+        const isProd = value === '1';
+
         console.log("Invoice to submit:", invoiceToSubmit);
         // console.log(sessionStorage.getItem("sellerProvince"));
         // console.log(sessionStorage.getItem("sellerBusinessName"));
@@ -2249,7 +2392,7 @@ export default function InvoicePage({ darkMode }) {
         }
 
         try {
-            console.log("isEdit mode ", isEditMode, " editingInvoiceId ", editingInvoiceId);
+           // console.log("isEdit mode ", isEditMode, " editingInvoiceId ", editingInvoiceId);
             if (isEditMode && editingInvoiceId) {
 
                 const res = await fetch('/api/invoices-crud', {
@@ -2257,13 +2400,13 @@ export default function InvoicePage({ darkMode }) {
                     headers: { 'Content-Type': 'application/json', ...getFbrHeaders() },
                     body: JSON.stringify({
                         invoiceId: editingInvoiceId,
-                        toValidate: forceValidate,
+                        toValidate: toValidate,
                         ...invoiceToSubmit,
                     }),
                 });
 
                 const data = await res.json();
-                alert(`${data.message}`);
+                //  alert(`${data.message}`);
                 if (res.ok) {
                     //setShowForm(false);
                     //  setIsEditMode(false);
@@ -2271,7 +2414,7 @@ export default function InvoicePage({ darkMode }) {
                     setHasChanged(false)
                     setIsReadOnly(false);
                     getMinDate();
-                    const newStatus = forceValidate ? 'Validated' : 'Pending';
+                    const newStatus = toValidate ? 'Validated' : 'Pending';
                     setInvoiceForm(prev => ({
                         ...prev,
                         status: newStatus
@@ -2287,7 +2430,7 @@ export default function InvoicePage({ darkMode }) {
                     }));
                     //  await fetchInvoices();
                 }
-                console.log('status', invoiceForm.status);
+              //  console.log('status', invoiceForm.status);
 
             } else {
 
@@ -2298,7 +2441,7 @@ export default function InvoicePage({ darkMode }) {
                 });
 
                 const data = await res.json();
-                alert(`${data.message}`);
+                // alert(`${data.message}`);
                 if (res.ok) {
                     setInvoiceForm({
                         invoiceNo: "",
@@ -2344,7 +2487,9 @@ export default function InvoicePage({ darkMode }) {
                                 discount: "",
                                 TransactionTypeId: 0,
                                 TransactionType: "",
-
+                                internalQty: 0,
+                                internalSinglePrice: 0,
+                                internalUOM: "",
                             },
                         ],
                     });
@@ -2412,21 +2557,123 @@ export default function InvoicePage({ darkMode }) {
         }
     };
 
+    const shouldShow = (fieldName, row = null, form = null) => {
+        const f = fields.find(f => f.name === fieldName);
+       // console.log('f' , f);
+        if (!f) return true;
+
+        if (f.show === 1) return true;
+        if (f.hide === 1) return false;
+        if (f.show_if_value === 1) {
+
+            switch (fieldName) {
+                case 'SRO Schedule No.':
+                    return !!row.sroScheduleNo;
+                case 'SRO Item Sr No.':
+                    return !!row.sroItemSerialNo;
+                case 'Internal UoM':
+                    return !!row.internalUOM;
+                case 'Internal Single Unit':
+                    return !!row.internalSinglePrice;
+                case 'Internal Qty':
+                    return !!row.internalQty;
+                case 'Fixed Notified Value or Retail Price':
+                    return !!row.fixedNotifiedValueOrRetailPrice && Number(row.fixedNotifiedValueOrRetailPrice) !== 0;
+                case 'Extra Tax':
+                    return !!row.extraTax && Number(row.extraTax) !== 0;
+                case 'Further Tax':
+                    return !!row.furtherTax && Number(row.furtherTax) !== 0;
+                case 'Federal Excise Duty':
+                    return !!row.fedPayable && Number(row.fedPayable) !== 0;
+                case 'Sales Tax With-Held at SOURCE':
+                    return !!row.salesTaxWithheldAtSource;
+                case 'Seller Name':
+                    return sessionStorage.getItem('sellerBusinessName') || '';
+                case 'Seller Address':
+                    return sessionStorage.getItem('sellerAddress') || '';
+                case 'Seller NTN':
+                    return sessionStorage.getItem('sellerInvoiceNTN');
+                case 'Challan No':
+                    return form.challanNo || '';
+                case 'Challan Date':
+                    return form.challanDate || '';
+                case 'Invoice Print Date':
+                    return form.invoice_posted_date || '';
+                default:
+                    return true;
+            }
+        }
+        return true;
+    };
+
+    const shouldShowHeader = (fieldName, activeRows) => {
+        const f = fields.find(f => f.name === fieldName);
+        if (!f) return true;
+
+        if (f.show === 1) return true;
+        if (f.hide === 1) return false;
+        if (f.show_if_value === 1) {
+
+            return activeRows.find(row => {
+                switch (fieldName) {
+                    case 'SRO Schedule No.':
+                        return !!row.sroScheduleNo;
+                    case 'SRO Item Sr No.':
+                        return !!row.sroItemSerialNo;
+                    case 'Internal UoM':
+                        return !!row.internalUOM;
+                    case 'Internal Single Unit':
+                        return !!row.internalSinglePrice && Number(row.internalSinglePrice) !== 0;
+                    case 'Internal Qty':
+                        return !!row.internalQty && Number(row.internalQty) !== 0;
+                    case 'Fixed Notified Value or Retail Price':
+                        return !!row.fixedNotifiedValueOrRetailPrice && Number(row.fixedNotifiedValueOrRetailPrice) !== 0;
+                    case 'Extra Tax':
+                        return !!row.extraTax && Number(row.extraTax) !== 0;
+                    case 'Further Tax':
+                        return !!row.furtherTax && Number(row.furtherTax) !== 0;
+                    case 'Federal Excise Duty':
+                        return !!row.fedPayable && Number(row.fedPayable) !== 0;
+                    case 'Discount':
+                        return !!row.discount && Number(row.discount) !== 0;
+                    case 'Sales Tax With-Held at SOURCE':
+                        return !!row.salesTaxWithheldAtSource && Number(row.salesTaxWithheldAtSource) !== 0;
+                    default:
+                        return false;
+                }
+            });
+        }
+
+        return true;
+    };
+
+
     const printInvoice = async (targetInvoice) => {
         try {
-
-            // await handleRegistrationCheck(invoiceForm.registrationNo);
 
             const sellerName = sessionStorage.getItem('sellerBusinessName') || '';
             const sellerAddress = sessionStorage.getItem('sellerAddress') || '';
             const sellerNTN = sessionStorage.getItem('sellerNTNCNIC') || '';
+            const sellerInvoiceNTN = sessionStorage.getItem('sellerInvoiceNTN');
 
             const invoiceNo = invoiceForm.invoiceNo || targetInvoice.invoice_no || '';
             const invoiceDate = formatDateForInput(invoiceForm.date || targetInvoice.invoice_date) || '';
-            const customerName = invoiceForm.customer || targetInvoice.customerName || '';
-            const activeCustomerId = targetInvoice
-                ? targetInvoice.customer_id  // Use snake_case from table object
+            const challanNo = invoiceForm.challanNo || targetInvoice.challanNo || '';
+            const challanNoLabel = invoiceForm.challanNoLabel || targetInvoice.challanNoLabel || 'Challan No';
+            const challanDateLabel = invoiceForm.challanDateLabel || targetInvoice.challanDateLabel || 'Challan Date';
+            const challanDate = formatDateForInput(invoiceForm.challan_date || targetInvoice.challanDate) || '';
+            const invoicePostDate = formatDateForInput(invoiceForm.invoice_posted_date || targetInvoice.invoice_posted_date) || '';
+            // console.log("invoiceForm.challanNoLabel", challanNoLabel);
+            // console.log("targetInvoice.challanNoLabel", challanDateLabel);
+    
+            const customerName = invoiceForm.customer.split(' - ')[0] || targetInvoice.customer_name || '';
+            // console.log("Print invoice customer name", customerName);
+            const isEvent = targetInvoice && targetInvoice.nativeEvent;
+
+            const activeCustomerId = (targetInvoice && !isEvent)
+                ? targetInvoice.customer_id
                 : invoiceForm.customerId;
+
             const customerAddress = customers.find(c => c.id === activeCustomerId)?.address || "";
             // const customerAddress = invoiceForm.buyerAddress || '';
             const customerProvince = invoiceForm.buyerProvince || targetInvoice.buyerProvince || '';
@@ -2436,8 +2683,8 @@ export default function InvoicePage({ darkMode }) {
             //     "";
             const customer = customers.find(c => c.id === activeCustomerId);
 
-            const idLabel = customer?.ntn ? "NTN" : "CNIC";
-            const idValue = customer?.ntn || customer?.cnic_inc || "";
+            const idLabel = customer?.cnic_inc.length === 7 ? "NTN" : "CNIC";
+            const idValue = customer?.cnic_inc || "";
 
 
             const currency = 'PKR';
@@ -2449,16 +2696,16 @@ export default function InvoicePage({ darkMode }) {
             const invoiceMetaLabel = isProd
                 ? 'Transaction Type'
                 : 'Scenario';
-            console.log("Print invoice transactionType", rows[0]);
-            console.log("Print invoice scenario code", targetInvoice.items);
+            // console.log("Print invoice transactionType", rows[0]);
+            // console.log("Print invoice scenario code", targetInvoice.items);
             let activeRows = [];
             if (targetInvoice && targetInvoice.items) {
-                // Parse if it's a string, otherwise use as is
+
                 activeRows = typeof targetInvoice.items === 'string'
                     ? JSON.parse(targetInvoice.items)
                     : targetInvoice.items;
             } else {
-                activeRows = rows; // Fallback to form state rows
+                activeRows = rows;
             }
             const activeScenarioCode = targetInvoice.scenario_code || invoiceForm.scenarioCode || '';
 
@@ -2470,23 +2717,61 @@ export default function InvoicePage({ darkMode }) {
             const scenarioCode = invoiceForm.scenarioCode || '';
             // console.log("Print scenario code", scenarioCode);
             // console.log("Print sale tax", rows[0].salesTaxApplicable);
-            const tableRows = activeRows.map((r, index) => `
-  <tr>
-    <td style="border:1px solid #000; padding:4px; text-align:center;">${index + 1 || ''}</td>
-    <td style="border:1px solid #000; padding:4px; text-align:left; line-height:1.5;"><strong>${r.hsCode}</strong> - ${r.description}<br>
-    <strong>UoM:</strong> ${r.unit || ''}${r.sroScheduleNo || r.sroItemSerialNo ? `<br><strong>SRO Schedule:</strong> 
-    ${r.sroScheduleNo || ''}<br><strong>SRO ITEM Sr. No:</strong> ${r.sroItemSerialNo || ''}` : ''}</td>
-    <td style="border:1px solid #000; padding:4px; text-align:center; line-height:1.5;">${formatNumber(r.singleUnitPrice || 0)} X
-    ${formatNumber(r.qty || 0)} - ${formatNumber(r.discount || 0)}<br><strong>${formatNumber(r.valueSalesExcludingST || 0)}</strong></td>
-    <td style="border:1px solid #000; padding:4px; text-align:right; line-height:1.5;">${invoiceForm.scenarioCode === 'SN008' ||
-                    invoiceForm.scenarioCode === 'SN027' ? `${r.rateDesc} on <br>Retail: ${formatNumber(r.fixedNotifiedValueOrRetailPrice || 0)}<br><strong>${formatNumber(r.salesTaxApplicable || 0)}</strong>` : `(${r.rateDesc})<br>${formatNumber(r.salesTaxApplicable || 0)}`}</td>
-    <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.furtherTax || 0)}</td>
-    <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.extraTax || 0)}</td>  
-    <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.fedPayable || 0)}</td>
-    <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.salesTaxWithheldAtSource || 0)}</td>
-    <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.totalValues || r.valueInclTax || 0)}</td>
-  </tr>
-`).join('');
+            //             const tableRows = activeRows.map((r, index) => `
+            //   <tr>
+            //     <td style="border:1px solid #000; padding:4px; text-align:center;">${index + 1 || ''}</td>
+            //     <td style="border:1px solid #000; padding:4px; text-align:left; line-height:1.5;"><strong>${r.hsCode}</strong> - ${r.description}<br>
+            //     <strong>UoM:</strong> ${r.unit || ''}${r.sroScheduleNo || r.sroItemSerialNo ? `<br><strong>SRO Schedule:</strong> 
+            //     ${r.sroScheduleNo || ''}<br><strong>SRO ITEM Sr. No:</strong> ${r.sroItemSerialNo || ''}` : ''}</td>
+            //     <td style="border:1px solid #000; padding:4px; text-align:center; line-height:1.5;">${formatNumber(r.singleUnitPrice || 0)} X
+            //     ${formatNumber(r.qty || 0)} - ${formatNumber(r.discount || 0)}<br><strong>${formatNumber(r.valueSalesExcludingST || 0)}</strong></td>
+            //     <td style="border:1px solid #000; padding:4px; text-align:right; line-height:1.5;">${invoiceForm.scenarioCode === 'SN008' ||
+            //                     invoiceForm.scenarioCode === 'SN027' ? `${r.rateDesc} on <br>Retail: ${formatNumber(r.fixedNotifiedValueOrRetailPrice || 0)}<br><strong>${formatNumber(r.salesTaxApplicable || 0)}</strong>` : `(${r.rateDesc})<br>${formatNumber(r.salesTaxApplicable || 0)}`}</td>
+            //     <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.furtherTax || 0)}</td>
+            //     <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.extraTax || 0)}</td>  
+            //     <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.fedPayable || 0)}</td>
+            //     <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.salesTaxWithheldAtSource || 0)}</td>
+            //     <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.totalValues || r.valueInclTax || 0)}</td>
+            //     <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.internalQty || 0)}</td>
+            //     <td style="border:1px solid #000; padding:4px; text-align:right;">${formatNumber(r.internalSinglePrice || 0)}</td>
+            //     <td style="border:1px solid #000; padding:4px; text-align:right;">${r.internalUOM || ''}</td>
+            //   </tr>
+            // `).join('');
+            const footerEnvText = process.env.NEXT_PUBLIC_INVOICE_FOOTER || "No Text from ENV.";
+            const tableRows = activeRows.map((r, index) => {
+
+                const isThirdSchedule = activeScenarioCode === 'SN008' || activeScenarioCode === 'SN027';
+                const taxRateDisplay = isThirdSchedule
+                    ? `${r.rateDesc} on Retail:<br>${formatNumber(r.fixedNotifiedValueOrRetailPrice || 0)}`
+                    : `(${r.rateDesc})`;
+
+                return `
+    <tr>
+        <td style="border:1px solid #000; padding:2px; text-align:center;">${index + 1}</td>
+        <td style="border:1px solid #000; padding:2px; text-align:center;">${r.hsCode}</td>
+        <td style="border:1px solid #000; padding:2px;">${r.description}</td>
+        ${shouldShow('SRO Schedule No.', r) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${r.sroScheduleNo || ''}</td>` : ''}
+        ${shouldShow('SRO Item Sr No.', r) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${r.sroItemSerialNo || ''}</td>` : ''}
+        <td style="border:1px solid #000; padding:2px; text-align:center;">${r.unit || ''}</td>
+        ${shouldShow('Internal UoM', r) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${r.internalUOM || ''}</td>` : ''}
+
+        <td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(r.singleUnitPrice || 0)}</td>
+        ${shouldShow('Internal Single Unit', r) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(r.internalSinglePrice || 0)}</td>` : ''}
+        <td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(r.qty || 0)}</td>
+        ${shouldShow('Internal Qty', r) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(r.internalQty || 0)}</td>` : ''}
+        <td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(r.discount || 0)}</td>
+        <td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(r.valueSalesExcludingST || 0)}</td>
+        ${shouldShow('Fixed Notified Value or Retail Price', r) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(r.fixedNotifiedValueOrRetailPrice || 0)}</td>` : ''}
+        <td style="border:1px solid #000; padding:2px; text-align:center; font-size:9px;">
+            ${taxRateDisplay}<br><strong>${formatNumber(r.salesTaxApplicable || 0)}</strong>
+        </td>
+        ${shouldShow('Extra Tax', r) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(r.extraTax || 0)}</td>` : ''}
+        ${shouldShow('Further Tax', r) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(r.furtherTax || 0)}</td>` : ''}
+        ${shouldShow('Federal Excise Duty', r) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(r.fedPayable || 0)}</td>` : ''}
+        ${shouldShow('Sales Tax With-Held at SOURCE', r) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(r.salesTaxWithheldAtSource || 0)}</td>` : ''}
+        <td style="border:1px solid #000; padding:2px; text-align:right;"><strong>${formatNumber(r.totalValues || r.valueInclTax || 0)}</strong></td>
+    </tr>`;
+            }).join('');
 
             const totalDisc = activeRows.reduce((sum, r) => sum + Number(r.discount || 0), 0);
             const totalQty = activeRows.reduce((sum, r) => sum + Number(r.qty || 0), 0);
@@ -2503,7 +2788,11 @@ export default function InvoicePage({ darkMode }) {
             // console.log("total tax ", totalTax);
             const totalInclTax = totalExclTax + totalTax;
 
-            const fbrInvoiceNo = targetInvoice
+            const totalInternalQty = activeRows.reduce((sum, r) => sum + Number(r.internalQty || 0), 0);
+            const totalInternalSingleUnitPrice = activeRows.reduce((sum, r) => sum + Number(r.internalSinglePrice || 0), 0);
+            const totalSingleUnitPrice = activeRows.reduce((sum, r) => sum + Number(r.singleUnitPrice || 0), 0);
+
+            const fbrInvoiceNo = (targetInvoice && !isEvent)
                 ? targetInvoice.fbr_invoice_no
                 : (invoices.find(inv => inv.invoice_no === invoiceForm.invoiceNo)?.fbr_invoice_no || '');
 
@@ -2540,121 +2829,206 @@ export default function InvoicePage({ darkMode }) {
                     ? window.location.origin
                     : "";
 
+
+            let visibleColsBeforeQty = 3;
+            if (shouldShowHeader('SRO Schedule No.', activeRows)) visibleColsBeforeQty++;
+            if (shouldShowHeader('SRO Item Sr No.', activeRows)) visibleColsBeforeQty++;
+            visibleColsBeforeQty++;
+            if (shouldShowHeader('Internal UoM', activeRows)) visibleColsBeforeQty++;
+            visibleColsBeforeQty++;
+            if (shouldShowHeader('Internal Single Unit', activeRows)) visibleColsBeforeQty++;
+
+            const savedOrientation = localStorage.getItem("userPrintOrientation") || "landscape";
+            let headerHeight = 0;
+
+            if (shouldShow('Seller Name')) headerHeight += 25;
+            if (shouldShow('Seller Address')) headerHeight += 20;
+            if (shouldShow('Seller NTN')) headerHeight += 20;
+            headerHeight += 40;
+            headerHeight += 10;
+
             const printContent = `
-<div style="font-family: Arial, sans-serif; font-size: 12px; max-width: 210mm; margin: 0 auto; padding: 15px; line-height: 1.4;">
-  <!-- Header -->
-  <div style="text-align:center; font-weight:bold; font-size:16px; margin-bottom:4px;">
-    ${sellerName.toUpperCase()}
-  </div>
-  <div style="text-align:center; font-size:11px; margin-bottom:2px;">
-    ${sellerAddress.toUpperCase()}
-  </div>
-  <div style="text-align:center; font-size:11px; margin-bottom:12px;">
-    NTN/CNIC No. ${sellerNTN}
-  </div>
+<style>
+    @media print {
+        @page {
+           size: A4 ${savedOrientation} !important;
+            margin: 10mm;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+        }
+       
+        .master-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+       .header-spacer { height: ${headerHeight}px; }
 
-  <!-- Title -->
-  <div style="text-align:center; font-weight:bold; font-size:14px; margin:12px 0;">
-    SALES TAX INVOICE
-  </div>
+        .footer-spacer { height: 50px; }
 
-  <!-- Billing To + Invoice details -->
-  <table style="width:100%; border-collapse:collapse; font-size:11px; margin-bottom:12px;">
-    <tr>
-      <td style="width:55%; vertical-align:top; border:1px solid #000; padding:6px;">
-        <strong>Billing To:</strong><br>
-        ${customerName}<br>
-        Address: ${customerAddress || 'Address not provided'}<br>
-        Province: ${customerProvince}<br>
-         ${idLabel}: ${idValue}
-      </td>
-      <td style="width:45%; vertical-align:top; border:1px solid #000; padding:6px;">
-        <table style="width:100%; border-collapse:collapse;">
-          <tr><td><strong>Invoice Number</strong></td><td>${invoiceNo}</td></tr>
-          <tr><td><strong>Date</strong></td><td>${invoiceDate}</td></tr>
-          <tr><td><strong>Invoice Type</strong></td><td>Sale Invoice</td></tr>
-          <tr><td><strong>Buyer Type</strong></td><td>${invoiceForm.buyerType || ''}</td></tr>
-          <tr><td><strong>Currency</strong></td><td>${currency || 'PKR'}</td></tr>
-          <tr>
-            <td><strong>${invoiceMetaLabel}</strong></td>
-            <td>${invoiceMetaValue}</td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
+        .header-fixed {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: ${headerHeight - 5}px;
+            background: white;
+            z-index: 2000;
+        }
+        .footer-fixed {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 45px;
+            background: white;      
+            display: flex !important;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 2000;
+            font-size: 12px
+        }
+        .page-counter-display::after {
+            font-weight: bold;
+        }
+        tr { page-break-inside: avoid !important; }
+        thead { display: table-header-group !important; }
+    }
+    @media screen {
+        .header-fixed, .footer-fixed { display: none; }
+    }
+</style>
 
-  <!-- Items Table – FIXED -->
-  <table style="width:100%; border-collapse:collapse; font-size:10px; margin-bottom:12px; border:1px solid #000;">
-    <thead style="background:#d9d9d9; font-weight:bold;">
-      <tr>
-        <th style="border:1px solid #000; padding:2px; width:4%;">Sr No.</th>
-        <th style="border:1px solid #000; padding:2px; width:30%; text-align:left;">Particulars</th>
-        <th style="border:1px solid #000; padding:2px; width:14%;">Excl. Sales Tax<br>(Unit X Qty) - Disc</th>
-        <th style="border:1px solid #000; padding:2px; width:14%;">Sales Tax</th>
-        <th style="border:1px solid #000; padding:2px; width:6%;">Further Tax</th>
-        <th style="border:1px solid #000; padding:2px; width:6%;">Extra Tax</th>
-        <th style="border:1px solid #000; padding:2px; width:6%;">FED</th>
-        <th style="border:1px solid #000; padding:2px; width:6%;">WH-ST</th>   
-        <th style="border:1px solid #000; padding:2px; width:22%; text-align:right;">Total Amount</th>
-      </tr>
+<div class="header-fixed">
+    <div style="text-align:center; font-weight:bold; font-size:16px; margin-top:5px;">
+         ${shouldShow('Seller Name') ? `${sellerName.toUpperCase()}` : ''}
+    </div>
+    <div style="text-align:center; font-size:11px;">
+          ${shouldShow('Seller Address') ? `${sellerAddress.toUpperCase()}` : ''}
+    </div>
+    <div style="text-align:center; font-size:11px; margin-bottom:12px;">
+        ${shouldShow('Seller NTN') ? `NTN No. ${sellerInvoiceNTN}` : ''}
+    </div>
+    <div style="text-align:center; font-weight:bold; font-size:14px; padding: 6px 0; margin: 0 10px; position: relative;">
+        SALES TAX INVOICE
+        <span class="page-counter-display" style="position: absolute; right: 10px; font-size: 10px;"></span>
+    </div>
+</div>
+
+<div class="footer-fixed">
+    <span style="padding-left:15px; font-style: italic;">${footerEnvText}</span>
+    <span class="page-counter-display" style="padding-right:15px; font-weight:bold;"></span>
+</div>
+
+<table class="master-table">
+    <thead>
+        <tr><td><div class="header-spacer">&nbsp;</div></td></tr>
     </thead>
     <tbody>
-      ${tableRows}
-      <tr style="font-weight:bold; background:#f2f2f2;">
-        <td colspan="2" style="border:1px solid #000; padding:6px; text-align:right;">Total</td>
-        <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalExclTax)}</td>
-        <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalSaleTaxApplicable)}</td>
-        <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalFurthurTax)}</td>
-        <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalExtraTax)}</td>
-        <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalFedPayable)}</td>
-        <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalSalesTaxWithheldAtSource)}</td>
-        <td style="border:1px solid #000; padding:6px; text-align:right;">${formatNumber(totalInclTax)}</td>
-      </tr>
+        <tr><td>
+            <div style="font-family: Arial, sans-serif; font-size: 11px; padding: 0 10px;">
+                
+                <table style="width:100%; border-collapse:collapse; font-size:11px; margin-bottom:12px;">
+                    <tr>
+                        <td style="width:55%; vertical-align:top; border:1px solid #000; padding:6px;">
+                            <strong>Billing To:</strong><br>
+                            ${customerName}<br>
+                            Address: ${customerAddress || 'Address not provided'}<br>
+                            Province: ${customerProvince}<br>
+                            ${idLabel}: ${idValue}
+                        </td>
+                        <td style="width:45%; vertical-align:top; border:1px solid #000; padding:6px;">
+            <table style="width:100%; border-collapse:collapse;">
+                <tr><td style="width:40%;"><strong>Invoice Number</strong></td><td>${invoiceNo}</td></tr>
+                <tr><td><strong>Date</strong></td><td>${invoiceDate}</td></tr>
+                <tr><td><strong>Buyer Type</strong></td><td>${(targetInvoice && !targetInvoice.nativeEvent ? targetInvoice.buyerType : invoiceForm.buyerType) || ''}</td></tr>
+                <tr><td><strong>Currency</strong></td><td>${currency || 'PKR'}</td></tr>
+                <tr><td><strong>${invoiceMetaLabel}</strong></td><td>${invoiceMetaValue}</td></tr>
+                
+                ${shouldShow('Challan No', invoiceForm) ? `
+                    <tr>
+                        <td><strong>${challanNoLabel}</strong></td>
+                        <td>${challanNo}</td>
+                    </tr>` : ''}
+                
+                ${shouldShow('Challan Date', invoiceForm) ? `
+                    <tr>
+                        <td><strong>${challanDateLabel}</strong></td>
+                        <td>${challanDate}</td>
+                    </tr>` : ''}
+                
+                ${shouldShow('Invoice Print Date', invoiceForm) ? `
+                    <tr>
+                        <td><strong>Invoice Post Date</strong></td>
+                        <td>${invoicePostDate}</td>
+                    </tr>` : ''}
+            </table>
+        </td>
+                    </tr>
+                </table>
+
+                <table style="width:100%; border-collapse:collapse; font-size:10px; margin-bottom:12px; border:1px solid #000;">
+                    <thead style="background:#d9d9d9; font-weight:bold;">
+                        <tr>
+                            <th style="border:1px solid #000; padding:2px; width:2%; text-align:center;">Sr No.</th>
+                            <th style="border:1px solid #000; padding:2px; width:4%; text-align:center;">HS Code</th>
+                            <th style="border:1px solid #000; padding:2px; width:13%; text-align:left;">Product Description</th>
+                            ${shouldShowHeader('SRO Schedule No.', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:5%; text-align:center;">SRO Schedule No.</th>` : ''}
+                            ${shouldShowHeader('SRO Item Sr No.', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:5%; text-align:center;">SRO Item Sr No.</th>` : ''}
+                            <th style="border:1px solid #000; padding:2px; width:6%; text-align:center;">FBR Unit</th>
+                            ${shouldShowHeader('Internal UoM', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:3%; text-align:center;">Internal UOM</th>` : ''}
+                            <th style="border:1px solid #000; padding:2px; width:5%; text-align:center;">FBR Price</th>
+                            ${shouldShowHeader('Internal Single Unit', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:3%; text-align:center;">Int. Price</th>` : ''}
+                            <th style="border:1px solid #000; padding:2px; width:5%; text-align:center;">FBR Qty</th>
+                            ${shouldShowHeader('Internal Qty', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:4%; text-align:center;">Int. Qty</th>` : ''}
+                            <th style="border:1px solid #000; padding:2px; width:3%; text-align:center;">Discount</th>
+                            <th style="border:1px solid #000; padding:2px; width:8%; text-align:center;">Excl. Tax</th>
+                            ${shouldShowHeader('Fixed Notified Value or Retail Price', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:5%; text-align:center;">Retail Price</th>` : ''}
+                            <th style="border:1px solid #000; padding:2px; width:6%; text-align:center;">Sales Tax</th>
+                            ${shouldShowHeader('Extra Tax', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:3%; text-align:center;">Extra Tax</th>` : ''}
+                            ${shouldShowHeader('Further Tax', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:3%; text-align:center;">Further Tax</th>` : ''}
+                            ${shouldShowHeader('Federal Excise Duty', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:3%; text-align:center;">FED</th>` : ''}
+                            ${shouldShowHeader('Sales Tax With-Held at SOURCE', activeRows) ? `<th style="border:1px solid #000; padding:2px; width:3%; text-align:center;">STWH</th>` : ''}   
+                            <th style="border:1px solid #000; padding:2px; width:10%; text-align:right;">Total Incl. Tax</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                        <tr style="font-weight:bold; background:#f2f2f2;">
+                            <td colspan="${visibleColsBeforeQty}" style="border:1px solid #000; padding:6px; text-align:right;">Total Values</td>
+                            <td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(totalQty)}</td>
+                            ${shouldShowHeader('Internal Qty', activeRows) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(totalInternalQty)}</td>` : ''}
+                            <td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(totalDisc)}</td>
+                            <td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(totalExclTax)}</td>
+                            ${shouldShowHeader('Fixed Notified Value or Retail Price', activeRows) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(totalFixednotifiedretailPrice)}</td>` : ''}
+                            <td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(totalSaleTaxApplicable)}</td>
+                            ${shouldShowHeader('Further Tax', activeRows) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(totalFurthurTax)}</td>` : ''}
+                            ${shouldShowHeader('Extra Tax', activeRows) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(totalExtraTax)}</td>` : ''}
+                            ${shouldShowHeader('Federal Excise Duty', activeRows) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(totalFedPayable)}</td>` : ''}
+                            ${shouldShowHeader('Sales Tax With-Held at SOURCE', activeRows) ? `<td style="border:1px solid #000; padding:2px; text-align:center;">${formatNumber(totalSalesTaxWithheldAtSource)}</td>` : ''}
+                            <td style="border:1px solid #000; padding:2px; text-align:right;">${formatNumber(totalInclTax)}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                ${fbrInvoiceNo ? `
+                <div style="display:flex; align-items:center; justify-content:space-between; font-size:11px; margin-top:10px; width:100%; page-break-inside: avoid;">
+                    <div><strong>FBR INVOICE #:</strong> ${fbrInvoiceNo}</div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <img id="fbr-qr" src="${qrCodeUrl}" width="80" height="80" alt="QR" />
+                        <img id="fbr-logo" src="${fbrLogoUrl}" width="80" height="80" alt="Logo" />
+                    </div>
+                </div>
+                ` : '<p style="text-align:center; font-style:italic;">Note: This Invoice is not verified from FBR</p>'}
+            </div>
+        </td></tr>
     </tbody>
-  </table>
-
-${fbrInvoiceNo ? `
-<div style="
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  font-size:11px;
-  margin-top:10px;
-  width:100%;
-">
-  <!-- LEFT: Invoice number -->
-  <div>
-    <strong>FBR INVOICE #:</strong> ${fbrInvoiceNo}
-  </div>
-
-  <!-- RIGHT: QR + Logo -->
-  <div style="
-    display:flex;
-    align-items:center;
-    gap:6px;
-  ">
-    <img
-      id="fbr-qr"
-      src="${qrCodeUrl}"
-      width="80"
-      height="80"
-      alt="FBR QR Code"
-    />
-    <img
-      id="fbr-logo"
-      src="${fbrLogoUrl}"
-      width="80"
-      height="80"
-      alt="FBR Logo"
-    />
-  </div>
-</div>
-` : 'Note: This Invoice is not verified form FBR'}
-
-</div>
+    <tfoot>
+        <tr><td><div class="footer-spacer">&nbsp;</div></td></tr>
+    </tfoot>
+</table>
 `;
-
             let printDiv = document.getElementById('print-invoice-container');
             if (!printDiv) {
                 printDiv = document.createElement('div');
@@ -2717,8 +3091,37 @@ ${fbrInvoiceNo ? `
     //         }, 0);
     //     }
     // };
+
+    // useEffect(() => {
+    //     rows.forEach((row, index) => {
+    //         if (row.TransactionTypeId) {
+    //             fetchSalesTaxRate(index, undefined, row);
+    //         }
+    //     });
+    // }, [rows.map(r => r.TransactionTypeId).join()]);
+
+    // useEffect(() => {
+    //     rows.forEach((row, index) => {
+    //         if (row.rateId) {
+    //             fetchSroScheduleOptions(
+    //                 index,
+    //                 row,
+    //                 undefined,
+    //                 invoiceForm.sellerProvinceId ?? invoiceForm.sellerProvince
+    //             );
+    //         }
+    //     });
+    // }, [rows.map(r => r.rateId).join()]);
+
+    // useEffect(() => {
+    //     rows.forEach((row, index) => {
+    //         if (row.sroScheduleId) {
+    //             fetchSroItemOptions(index, row);
+    //         }
+    //     });
+    // }, [rows.map(r => r.sroScheduleId).join()]);
     const handleInputChange = (index, name, value) => {
-        //console.log(`Row ${index} change:`, name, value);
+       // console.log(`Row ${index} change:`, name, value);
 
         setRows((prevRows) => {
             const newRows = [...prevRows];
@@ -2733,6 +3136,7 @@ ${fbrInvoiceNo ? `
             // TransactionType selection: support setting by id or description
             if (name === "TransactionType" || name === "TransactionTypeId") {
                 const valStr = String(value).trim();
+                console.log("value str", valStr);
                 let found = null;
                 if (name === "TransactionTypeId") {
                     found = transTypeList.find(t => String(t.transactioN_TYPE_ID) === valStr);
@@ -3086,7 +3490,7 @@ ${fbrInvoiceNo ? `
                 headers: { 'Content-Type': 'application/json', ...getFbrHeaders() },
                 body: JSON.stringify({
                     invoiceId: inv.id,    // Equivalent to editingInvoiceId
-                    toValidate: true,      // Equivalent to forceValidate
+                    toValidate: true,      // Equivalent to toValidate
                     ...invoiceToSubmit,   // Spread the object
                 }),
             });
@@ -3152,7 +3556,11 @@ ${fbrInvoiceNo ? `
                     <div className={`${darkMode ? 'bg-gray-900' : 'bg-white'} rounded-xl shadow-lg p-6 w-full max-w-8xl h-[90vh] overflow-y-auto custom-scroll`}>
 
 
-                        <form onSubmit={handleInvoiceSubmit} className="">
+                        {HSCodeLoading ? (
+                            <div className="flex justify-center items-center h-164">
+                                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+                            </div>
+                        ) : (<form onSubmit={handleInvoiceSubmit} className="">
                             <div className="flex justify-between items-center mb-6">
                                 <h2 className="text-2xl font-bold">{isEditMode ? (isReadOnly ? 'View Invoice' : 'Edit Invoice') : 'Add Invoice'}</h2>
                                 <div className="flex gap-4 items-center">
@@ -3238,6 +3646,13 @@ ${fbrInvoiceNo ? `
                                                     {isLoadingError ? 'Loading...' : 'View Error Details'}
                                                 </button>
                                             )}
+                                            {invoiceForm.status === 'Validated' && !hasChanged && (
+                                                <span className="px-4 py-2 rounded-md font-semibold flex items-center gap-2 bg-green-600 text-white w-fit">
+                                                    {/* Optional: Adds a checkmark icon to match your style */}
+                                                    Validation Success
+                                                </span>
+                                            )}
+
                                         </>
                                     )}
 
@@ -3588,12 +4003,13 @@ ${fbrInvoiceNo ? `
                                     <label className="block text-sm font-medium mb-1">Scenario Code</label>
                                     <input name="scenarioCode" value={invoiceForm.scenarioCode} onChange={handleFormChange} className="w-full border rounded-md px-3 py-2" />
                                 </div> */}
-                                <div className="relative w-full group">
+                                {/* <div className="relative w-full group">
                                     <label className="block text-sm font-medium mb-1">Scenario Code</label>
 
                                     <input
                                         type="text"
-                                        value={scenarioSearch}
+                                       // value={scenarioSearch}
+                                        value={invoiceForm.scenarioCode ? `${invoiceForm.scenarioCode} - ${scenarioCodes.find(s => s.code === invoiceForm.scenarioCode)?.description}` : ""}
                                         onChange={(e) => { setScenarioSearch(e.target.value); setHasChanged(true); }}
                                         placeholder="Select scenario code..."
                                         className="w-full border rounded-md px-3 py-2"
@@ -3603,11 +4019,11 @@ ${fbrInvoiceNo ? `
 
                                     <div className="absolute left-0 right-0 top-full -mt-px bg-white border rounded-md max-h-40 overflow-y-auto z-50 shadow-lg hidden group-focus-within:block">
                                         {scenarioCodes
-                                            .filter((s) =>
-                                                `${s.code} - ${s.description}`
-                                                    .toLowerCase()
-                                                    .includes(scenarioSearch.toLowerCase())
-                                            )
+                                            // .filter((s) =>
+                                            //     `${s.code} - ${s.description}`
+                                            //         .toLowerCase()
+                                            //         .includes(scenarioSearch.toLowerCase())
+                                            // )
                                             .map((s) => (
                                                 <div
                                                     key={s.id}
@@ -3646,7 +4062,7 @@ ${fbrInvoiceNo ? `
                                                             scenarioCodeId: selectedId,
                                                             scenarioCode: selectedCode,
                                                         }));
-                                                        setScenarioSearch(displayValue);
+                                                        //setScenarioSearch(displayValue);
                                                         setHasChanged(true);
 
                                                         // 4. Auto-update all rows if a mapping is found
@@ -3654,7 +4070,8 @@ ${fbrInvoiceNo ? `
                                                             const targetDesc = mapping.transaction_desc;
                                                             // Find the ID from your existing transTypeList
                                                             const targetId = transTypeList.find(t => t.transactioN_DESC === targetDesc)?.transactioN_TYPE_ID;
-
+                                                            // console.log("desc" , targetDesc);
+                                                            // console.log("id" , targetId);
                                                             setRows((prevRows) => {
                                                                 const updatedRows = prevRows.map((row) => ({
                                                                     ...row,
@@ -3674,15 +4091,113 @@ ${fbrInvoiceNo ? `
                                                 </div>
                                             ))}
 
-                                        {scenarioCodes.filter((s) =>
+                                        {/* {scenarioCodes.filter((s) =>
                                             `${s.code} - ${s.description}`
                                                 .toLowerCase()
                                                 .includes(scenarioSearch.toLowerCase())
                                         ).length === 0 && (
                                                 <div className="px-3 py-2 text-gray-400">No scenario found</div>
-                                            )}
+                                            )} */ /*}
+                                    </div>
+                                </div> */}
+                                <div className="relative w-full group">
+                                    <label className="block text-sm font-medium mb-1">Scenario Code</label>
+
+                                    <input
+                                        type="text"
+                                        value={
+                                            invoiceForm.scenarioCode
+                                                ? `${invoiceForm.scenarioCode} - ${scenarioCodes.find(
+                                                    (s) => s.code === invoiceForm.scenarioCode
+                                                )?.description || ""}`
+                                                : ""
+                                        }
+                                        placeholder="Select scenario code..."
+                                        className="w-full border rounded-md px-3 py-2 cursor-pointer bg-white"
+                                        readOnly={true} // allow click but prevent typing if you want
+                                        onClick={(e) => e.currentTarget.focus()} // focus triggers dropdown via group-focus-within
+                                        required
+                                    />
+
+                                    <div className="absolute left-0 right-0 top-full -mt-px bg-white border rounded-md max-h-40 overflow-y-auto z-50 shadow-lg hidden group-focus-within:block">
+                                        {scenarioCodes.map((s) => (
+                                            <div
+                                                key={s.id}
+                                                className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault(); // prevent input blur
+                                                    const selectedCode = s.code;
+                                                    const selectedId = s.id;
+
+                                                    // save only code
+                                                    setInvoiceForm((prev) => ({
+                                                        ...prev,
+                                                        scenarioCodeId: selectedId,
+                                                        scenarioCode: selectedCode,
+                                                    }));
+                                                    setHasChanged(true);
+
+                                                    // auto-update rows if mapping exists
+                                                    const mapping = scenarioCodeToTransactionType.find(
+                                                        (m) =>
+                                                            String(m.scenario_code).trim().toUpperCase() ===
+                                                            selectedCode.trim().toUpperCase()
+                                                    );
+                                                    if (mapping) {
+                                                       // console.log("Found mapping for selected scenario code:", mapping);
+                                                        const targetDesc = mapping.transaction_desc.trim();
+                                                        const targetId = transTypeList.find(
+                                                            (t) => t.transactioN_DESC.trim() === targetDesc
+                                                        )?.transactioN_TYPE_ID;
+                                                       // console.log("Selected targetId mapping:", targetId);
+                                                        // setRows((prevRows) =>
+                                                        //     prevRows.map((row) => ({
+                                                        //         ...row,
+                                                        //         TransactionType: targetDesc,
+                                                        //         TransactionTypeId: targetId || row.TransactionTypeId,
+                                                        //     }))
+                                                        // );
+
+                                                        // setTimeout(() => {
+                                                        //     rows.forEach((row, idx) =>
+                                                        //         fetchSalesTaxRate(idx, undefined, row)
+                                                        //     );
+                                                        // }, 200);
+                                                        setRows((prevRows) => {
+                                                            const updatedRows = prevRows.map((row) => ({
+                                                                ...row,
+                                                                TransactionType: targetDesc,
+                                                                TransactionTypeId: targetId || row.TransactionTypeId,
+                                                                rate: "",
+                                                                rateId: 0,
+                                                                rateDesc: "",
+                                                                rateOptions: [], // This clears the "previous" dropdowns
+                                                                sroOptions: [],
+                                                                sroScheduleNo: "",
+                                                                sroScheduleId: "",
+                                                                sroItemOptions: [],
+                                                                sroItemId: "",
+                                                                sroItemSerialNo: ""
+                                                            }));
+
+                                                            // Immediately use updatedRows (NOT rows)
+                                                            updatedRows.forEach((row, idx) => {
+                                                                fetchSalesTaxRate(idx, undefined, row);
+                                                            });
+
+                                                            return updatedRows;
+                                                        });
+                                                    }else{
+                                                        console.log("No mapping found for selected scenario code:", selectedCode);
+                                                    }
+                                                }}
+                                            >
+                                                {s.code} - {s.description}
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
+
                                 <div className="relative w-full group">
                                     <label className="block text-sm font-medium mb-1">Sale Type</label>
 
@@ -3699,8 +4214,8 @@ ${fbrInvoiceNo ? `
                                                     ? "bg-gray-50 text-gray-700 cursor-default"
                                                     : "bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500"}
                                              `}
-                                            readOnly={isReadOnly}
-                                            onFocus={(e) => !isReadOnly && e.target.select()}
+                                            readOnly={true}
+                                            //  onFocus={(e) => !isReadOnly && e.target.select()}
                                             required
                                         />
 
@@ -3714,12 +4229,6 @@ ${fbrInvoiceNo ? `
                                                     "
                                             >
                                                 {saleTypeList
-                                                    .filter((item) => {
-                                                        const search = (invoiceForm.saleType || "").trim().toLowerCase();
-                                                        // Show all options if search is empty or very short
-                                                        if (search.length <= 1) return true;
-                                                        return item.docDescription.toLowerCase().includes(search);
-                                                    })
                                                     .map((item) => (
                                                         <div
                                                             key={item.docTypeId}
@@ -3832,6 +4341,36 @@ ${fbrInvoiceNo ? `
                                         />
                                     </div>
                                 )}
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Challan No</label>
+                                    <input
+                                        type="text"
+                                        name="challanNo"
+                                        value={invoiceForm.challanNo || ''}
+                                        onChange={(e) => {
+                                            handleFormChange(e);
+                                            setHasChanged(true);
+                                        }}
+                                        className="w-full border rounded-md px-3 py-2"
+                                        placeholder="Enter Challan No"
+                                        readOnly={isReadOnly}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Challan Date </label>
+                                    <input
+                                        type="date"
+                                        name="challan_date"
+                                        value={invoiceForm.challan_date}
+                                        //onChange={handleFormChange}
+                                        onChange={(e) => {
+                                            handleFormChange(e);
+                                            setHasChanged(true);
+                                        }}
+                                        className="w-full border rounded-md px-3 py-2"
+                                        readOnly={isReadOnly}
+                                    />
+                                </div>
 
                             </div>
                             {/* <div className="bg-white rounded-xl shadow overflow-x-auto custom-scroll mt-6">
@@ -3903,6 +4442,9 @@ ${fbrInvoiceNo ? `
                                             <th className="px-4 py-3 font-semibold">Discount</th>
                                             {/* <th className="px-4 py-3 font-semibold">Sale Type</th> */}
                                             <th className="px-4 py-3 font-semibold">SRO Item Serial No</th>
+                                            <th className="px-4 py-3 font-semibold">Internal Qty</th>
+                                            <th className="px-4 py-3 font-semibold">Internal Single Unit Price</th>
+                                            <th className="px-4 py-3 font-semibold">Internal UOM</th>
                                             {/* <th className="px-4 py-3 font-semibold">Actions</th> */}
                                             <th
                                                 className="px-4 py-3 font-semibold"
@@ -4639,8 +5181,10 @@ ${fbrInvoiceNo ? `
                                                 </td>
 
                                                 <td className="px-4 py-3 whitespace-nowrap">
-                                                    {row.sroOptions && row.sroOptions.length > 0 ? (
+                                                    {/* {row.sroOptions && row.sroOptions.length > 0 ? ( */}
+                                                    {Array.isArray(row.sroOptions) && row.sroOptions.length > 0 ? (
                                                         <select
+                                                            key={`select-${row.rateId}`}   // 👈 force re-mount when rate changes
                                                             value={row.sroScheduleId ?? ""}
                                                             onChange={(e) => { handleInputChange(index, "sroScheduleId", e.target.value); setHasChanged(true); }}
                                                             className="w-full border rounded px-2 py-1"
@@ -4660,8 +5204,9 @@ ${fbrInvoiceNo ? `
                                                         </select>
                                                     ) : (
                                                         <input
+                                                            key={`input-${row.rateId}`}   // 👈 force re-mount
                                                             name="sroScheduleNo"
-                                                            value={row.sroScheduleNo ?? "not found"}
+                                                            value={row.sroScheduleNo ?? ""}
                                                             onChange={(e) => { handleInputChange(index, "sroScheduleNo", e.target.value); setHasChanged(true); }}
                                                             className="w-full border rounded px-2 py-1"
                                                             readOnly={isReadOnly}
@@ -4669,9 +5214,9 @@ ${fbrInvoiceNo ? `
                                                     )}
 
                                                     {/* Hidden inputs to keep IDs present */}
-                                                    <input type="hidden" name={`rows[${index}].sroScheduleId`} value={row.sroScheduleId ?? ''} />
+                                                    {/* <input type="hidden" name={`rows[${index}].sroScheduleId`} value={row.sroScheduleId ?? ''} />
                                                     <input type="hidden" name={`rows[${index}].sroScheduleNoId`} value={row.sroScheduleNoId ?? ''} />
-                                                    <input type="hidden" name={`rows[${index}].sroScheduleNo`} value={row.sroScheduleNo ?? ''} />
+                                                    <input type="hidden" name={`rows[${index}].sroScheduleNo`} value={row.sroScheduleNo ?? ''} /> */}
                                                 </td>
 
 
@@ -4865,6 +5410,120 @@ ${fbrInvoiceNo ? `
                                                     <input type="hidden" name={`rows[${index}].sroItemId`} value={row.sroItemId ?? ''} />
                                                 </td>
 
+                                                <td className="px-4 py-3 whitespace-nowrap">
+                                                    <input
+                                                        type="text"
+                                                        name="internalQty"
+                                                        // value={row.qty}
+                                                        value={row.internalQty ?? ""}
+                                                        // onChange={(e) => handleInputChange(index, "qty", e.target.value)}
+                                                        onChange={(e) => {
+                                                            if (isReadOnly) return;
+
+                                                            let val = e.target.value;
+
+                                                            const decimalMatch = val.match(/\.(\d*)/);
+                                                            const hasDecimal = decimalMatch !== null;
+                                                            const decimalDigits = hasDecimal ? decimalMatch[1].length : 0;
+
+                                                            if (decimalDigits > 4) return;
+
+                                                            const cleaned = val
+                                                                .replace(/[^0-9.]/g, '')
+                                                                .replace(/(\..*?)\./g, '$1');
+
+                                                            handleInputChange(index, "internalQty", cleaned);
+                                                            setHasChanged(true);
+                                                        }}
+                                                        onBlur={() => {
+                                                            if (isReadOnly) return;
+
+                                                            let current = (row.internalQty ?? "").trim();
+
+                                                            if (current === "") {
+                                                                handleInputChange(index, "internalQty", "0");
+                                                                setHasChanged(true);
+                                                                return;
+                                                            }
+
+                                                            const num = Number(current);
+                                                            if (!isNaN(num) && num >= 0) {
+                                                                handleInputChange(index, "internalQty", num.toString());
+                                                                setHasChanged(true);
+                                                            } else {
+                                                                handleInputChange(index, "internalQty", "0");
+                                                                setHasChanged(true);
+                                                            }
+                                                        }}
+                                                        className="w-full border rounded px-2 py-1"
+                                                        readOnly={isReadOnly}
+                                                        inputMode="decimal"
+                                                        pattern="[0-9]*\.?[0-9]*"
+                                                        placeholder="1.0000"
+                                                    />
+                                                </td>
+                                                <td className="px-4 py-3 whitespace-nowrap">
+                                                    <input
+                                                        type="text"
+                                                        name="internalSinglePrice"
+                                                        // value={row.qty}
+                                                        value={row.internalSinglePrice ?? ""}
+                                                        // onChange={(e) => handleInputChange(index, "qty", e.target.value)}
+                                                        onChange={(e) => {
+                                                            if (isReadOnly) return;
+
+                                                            let val = e.target.value;
+
+                                                            const decimalMatch = val.match(/\.(\d*)/);
+                                                            const hasDecimal = decimalMatch !== null;
+                                                            const decimalDigits = hasDecimal ? decimalMatch[1].length : 0;
+
+                                                            if (decimalDigits > 4) return;
+
+                                                            const cleaned = val
+                                                                .replace(/[^0-9.]/g, '')
+                                                                .replace(/(\..*?)\./g, '$0');
+
+                                                            handleInputChange(index, "internalSinglePrice", cleaned);
+                                                            setHasChanged(true);
+                                                        }}
+                                                        onBlur={() => {
+                                                            if (isReadOnly) return;
+
+                                                            let current = (row.internalSinglePrice ?? "").trim();
+
+                                                            if (current === "") {
+                                                                handleInputChange(index, "internalSinglePrice", "0");
+                                                                setHasChanged(true);
+                                                                return;
+                                                            }
+
+                                                            const num = Number(current);
+                                                            if (!isNaN(num) && num >= 0) {
+                                                                handleInputChange(index, "internalSinglePrice", num.toString());
+                                                                setHasChanged(true);
+                                                            } else {
+                                                                handleInputChange(index, "internalSinglePrice", "0");
+                                                                setHasChanged(true);
+                                                            }
+                                                        }}
+                                                        className="w-full border rounded px-2 py-1"
+                                                        readOnly={isReadOnly}
+                                                        inputMode="decimal"
+                                                        pattern="[0-9]*\.?[0-9]*"
+                                                        placeholder="1.0000"
+                                                    />
+                                                </td>
+                                                <td className="px-4 py-3 whitespace-nowrap">
+                                                    <input
+                                                        name="internalUOM"
+                                                        value={row.internalUOM ?? ""}
+                                                        onChange={(e) => { handleInputChange(index, "internalUOM", e.target.value); setHasChanged(true); }
+                                                        }
+                                                        className="w-full border rounded px-2 py-1"
+                                                        readOnly={isReadOnly}
+                                                    />
+                                                </td>
                                                 {/* Remove Button */}
                                                 {/* <td className="px-4 py-3 whitespace-nowrap">
                                                     <button
@@ -4931,7 +5590,7 @@ ${fbrInvoiceNo ? `
                                 </div>
                             </div>
 
-                        </form>
+                        </form>)}
                     </div>
                 </div>
             )}

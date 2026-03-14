@@ -30,7 +30,13 @@ export default function Sidebar({ darkMode, sidebarCollapsed, setSidebarCollapse
 
     const bottomItems = [
         { icon: Settings, label: 'Settings', url: '/setting' },
-        { icon: HelpCircle, label: 'Help', url: '/help' },
+       // { icon: HelpCircle, label: 'Help', url: '/help' },
+       {
+            icon: HelpCircle,
+            label: 'Help',
+            url: "https://wa.me/923249464726?text=Assalam%20O%20Alaikum,%20I%20want%20to%20Subscribe%20Vendidge",
+            external: true
+        },
     ];
 
 

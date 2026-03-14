@@ -193,7 +193,7 @@ export default function CustomersPage({ darkMode }) {
                 // } else {
                 //     addCustomer(result.customer); 
                 // }
-                alert(`Customer ${editingCustomer ? 'updated' : 'added'} successfully!`);
+               // alert(`Customer ${editingCustomer ? 'updated' : 'added'} successfully!`);
                 setShowForm(false);
                 setEditingCustomer(null);
                 loadCustomers();

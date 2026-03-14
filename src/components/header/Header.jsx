@@ -18,7 +18,7 @@ export default function Header({ darkMode, setDarkMode, setSidebarOpen }) {
           <Menu className="w-6 h-6" />
         </button>
 
-        <div className="flex-1 max-w-2xl mx-auto px-4">
+        <div className="flex-1 max-w-2xl mx-auto px-4 invisible">
           <input
             type="text"
             placeholder="Search..."
@@ -35,7 +35,7 @@ export default function Header({ darkMode, setDarkMode, setSidebarOpen }) {
               onClick={() => setOpenMenu(!openMenu)}
               className="flex items-center gap-3">
               <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold">
-                {user?.owner_name?.charAt(0)?.toUpperCase() || "U"}
+                {user?.business_name?.charAt(0)?.toUpperCase() || "U"}
               </div>
               <div className="hidden md:block text-left">
                 <p className="text-sm font-medium">{user?.business_name || "User"}</p>
