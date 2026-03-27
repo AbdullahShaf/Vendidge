@@ -1402,7 +1402,10 @@ export async function PUT(req) {
     if (typeof items !== 'undefined') { updates.push('items = ?'); params.push(JSON.stringify(items)); }
     if (typeof status !== 'undefined') { updates.push('status = ?'); params.push(status); }
     if(typeof challanNo !== 'undefined') { updates.push('challanNo = ?'); params.push(challanNo); }
-    if(typeof challanDate !== 'undefined') { updates.push('challanDate = ?'); params.push(challanDate); }
+     if (typeof challanDate !== "undefined" && challanDate != "") {
+      updates.push("challanDate = ?");
+      params.push(challanDate);
+    }
 
     if (updates.length === 0) {
       return NextResponse.json({ message: 'No fields to update' }, { status: 400 });
